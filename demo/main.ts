@@ -390,14 +390,11 @@ function createVisibleLayout(): LayoutModel {
     }
   }
 
-  for (let index = 1; index < entries.length; index++) {
-    const parentEntry = entries[index - 1];
-    const childEntry = entries[index];
-    if (!parentEntry || !childEntry) continue;
+  for (const child of nodes) {
+    if (child.parentId === null || child.parentId === state.rootId) continue;
 
-    const parent = nodeById.get(parentEntry.nodeId);
-    const child = nodeById.get(childEntry.nodeId);
-    if (!parent || !child) continue;
+    const parent = nodeById.get(child.parentId);
+    if (!parent) continue;
 
     const edge: PositionedEdge = {
       id: createEdgeId(parent.id, child.id),

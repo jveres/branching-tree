@@ -257,9 +257,9 @@ body.is-map-dragging {
 
 .tree-edge {
   fill: none;
-  stroke: hsl(var(--edge));
+  stroke: hsl(var(--edge) / 0.58);
   stroke-linecap: round;
-  stroke-width: 1.5;
+  stroke-width: 1.35;
   vector-effect: non-scaling-stroke;
 }
 
