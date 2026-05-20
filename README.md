@@ -1,16 +1,18 @@
 # Branching tree
 
 `BranchingTree` is a small TypeScript data structure for a rooted, ordered tree
-where every node can select one child. The selected child pointers define a
-single active path through the tree, exposed as `selectedPath`.
+where every node can select one child. The selected child pointers define one
+active path through the tree, exposed as `selectedPath`.
 
-Use it when you need to keep alternative branches at any position while still
-reading or appending to one current path.
+The main use case is a chat transcript where each message can have multiple
+versions. Each version is a sibling, and the active conversation is the selected
+path. The API stays generic, so the same structure works for drafts, workflows,
+edit histories, and other branchable sequences.
 
 ## Install
 
 This repository is currently a local TypeScript package. Install dependencies
-with `pnpm` before running the test and quality checks.
+with `pnpm` before running tests and quality checks.
 
 ```sh
 pnpm install
@@ -24,23 +26,66 @@ a child of the current `head`, or as a child of the root when the tree is empty.
 ```ts
 import { BranchingTree } from "./branching-tree";
 
-type Step = {
+type Message = {
   id: string;
-  label: string;
+  role: "user" | "assistant";
+  content: string;
 };
 
-const tree = new BranchingTree<Step>();
+const tree = new BranchingTree<Message>();
 
-tree.append({ id: "draft", label: "Draft" });
-tree.append({ id: "review", label: "Review" });
-tree.addSibling("review", { id: "legal-review", label: "Legal review" });
+tree.append({ id: "user-1", role: "user", content: "Draft an intro." });
+tree.append({ id: "assistant-1a", role: "assistant", content: "Version A" });
+tree.addSibling("assistant-1a", {
+  id: "assistant-1b",
+  role: "assistant",
+  content: "Version B",
+});
 
 console.log(tree.selectedPath);
 // [
-//   { id: "draft", label: "Draft" },
-//   { id: "legal-review", label: "Legal review" },
+//   { id: "user-1", role: "user", content: "Draft an intro." },
+//   { id: "assistant-1b", role: "assistant", content: "Version B" },
 // ]
 ```
+
+## Chat app patterns
+
+Use siblings as message versions. The selected sibling at each depth forms the
+visible conversation, while unselected siblings remain available for version
+switching.
+
+```ts
+// Generate another assistant version without switching away from the active one.
+tree.addSibling(
+  "assistant-1b",
+  { id: "assistant-1c", role: "assistant", content: "Version C" },
+  { select: false },
+);
+
+// Render version controls for the active assistant message.
+const versions = tree.getSiblingEntries("assistant-1b");
+// versions[1]?.selected === true
+// versions[1]?.siblingCount === 3
+
+// Switch directly to a different version.
+tree.selectSiblingById("assistant-1c");
+
+// Stream tokens into the active assistant message.
+tree.updateHead({
+  id: "assistant-1c",
+  role: "assistant",
+  content: "Version C with more text",
+});
+
+// Regenerate after a user message by pruning later messages first.
+tree.truncateAfter("user-1");
+tree.append({ id: "assistant-2", role: "assistant", content: "New answer" });
+```
+
+`selectedPath` and `selectedPathEntries` are cached, so reading the active
+conversation and its version metadata is O(1). Tree writes rebuild those cached
+arrays.
 
 ## Core concepts
 
@@ -51,30 +96,77 @@ selected path from the root to a leaf.
 - `BranchingTreeNode<T>` stores a value, parent id, child ids, and selected
   child index.
 - `BranchingTreeState<T>` is the serializable tree state.
+- `BranchingTreePathEntry<T>` describes a selected path value plus its sibling
+  metadata.
+- `BranchingTreeSiblingEntry<T>` describes a sibling and whether it's selected.
 - `selectedPath` returns the cached selected values in O(1) time.
+- `selectedPathEntries` returns cached selected values plus sibling metadata in
+  O(1) time.
 - `head` returns the last value in `selectedPath`, or `null` for an empty tree.
 
-## API overview
+## Reading data
 
-The public API keeps tree operations separate from value operations. Methods
-that can't complete return `false` when the operation is safe to ignore, and
-throw when the request would create invalid state.
+Read APIs either return immutable cached arrays or cloned node structures, so
+callers can't accidentally mutate the tree shape.
 
-- `append(value)` inserts a value after the current `head`.
-- `update(value)` replaces an existing node value by `id`.
-- `upsert(value)` updates an existing value or appends a new one.
-- `addSibling(referenceId, value)` creates a sibling next to an existing node.
-- `selectSibling(id, offset)` moves selection among siblings by offset.
-- `selectPathTo(id)` selects every parent-to-child edge needed to reach a node.
-- `deleteNode(id)` removes a node and its subtree.
-- `deleteSiblings(id)` removes every sibling of the referenced node, including
-  the node.
-- `deleteSiblings(id, { keepTarget: true })` removes every sibling except the
-  referenced node.
-- `getState()` returns a cloned state object.
-- `loadState(state)` validates and loads a serialized state object.
+- `selectedPath` returns the active values from root to leaf.
+- `selectedPathEntries` returns the active values with `siblingIndex`,
+  `siblingCount`, `hasPreviousSibling`, and `hasNextSibling`.
+- `head` returns the active leaf value.
+- `hasNode(id)`, `hasParent(id)`, and `hasChildren(id)` return boolean checks.
+- `getSiblingPosition(id)` returns `{ current, total }` using one-based indexes.
+- `getSiblings(id)` returns cloned sibling nodes for the referenced node.
+- `getSiblingValues(id)` returns sibling values for the referenced node.
+- `getSiblingEntries(id)` returns sibling values with selection metadata.
 - `getStats()` reports node count, selected path length, depth, leaves, branch
   points, and unreachable nodes.
+
+## Writing data
+
+Write APIs keep selection explicit. By default, inserted siblings become the
+selected branch. Pass `{ select: false }` to keep the current selected sibling
+when the parent already has a child. The first child of a parent is always the
+selected child because there is no alternative branch yet.
+
+- `append(value, options)` inserts a value after the current `head`.
+- `appendChild(parentId, value, options)` inserts a value under a specific
+  parent.
+- `addSibling(referenceId, value, options)` creates a sibling next to an
+  existing node.
+- `update(value)` replaces an existing node value by `id`.
+- `updateHead(value)` replaces the current `head` value without searching the
+  tree. This is useful for streaming updates to the active leaf.
+- `upsert(value, options)` updates an existing value or appends a new one.
+- `loadState(state)` validates and loads a serialized state object.
+- `reset(rootId)` clears the tree and creates a new root node.
+
+## Selecting branches
+
+Selection APIs change which sibling is active at a branch point. In a chat app,
+these methods switch between message versions.
+
+- `selectSibling(id, offset)` moves selection among siblings by offset.
+- `selectSiblingAt(id, index)` selects a sibling by zero-based index in the
+  referenced node's sibling group.
+- `selectSiblingById(id)` selects an existing non-root node by id and selects
+  the ancestor path needed to reach it.
+- `selectPathTo(id)` selects every parent-to-child edge needed to reach a node.
+
+## Deleting branches
+
+Deletion APIs remove subtrees and then rebuild the cached selected path. Methods
+return `false` when there is nothing to delete.
+
+- `deleteNode(id)` removes a node and its descendants.
+- `deleteBranch(id)` is an alias for `deleteNode(id)` when the call site is
+  branch-oriented.
+- `deleteDescendants(id)` keeps a node and removes all children below it.
+- `truncateAfter(id)` selects the path to a node, then removes everything below
+  it.
+- `deleteSiblings(id)` removes every sibling of the referenced node, including
+  the referenced node.
+- `deleteSiblings(id, { keepTarget: true })` removes every sibling except the
+  referenced node.
 
 ## State helpers
 
@@ -89,7 +181,7 @@ default prefix is `node`, so `BranchingTree.createNodeId()` returns ids shaped
 like `node-abc123`.
 
 ```ts
-const id = BranchingTree.createNodeId("step");
+const id = BranchingTree.createNodeId("message");
 ```
 
 ### `createLinearState(values, options)`
@@ -104,12 +196,12 @@ their current ids.
 ```ts
 const linearState = BranchingTree.createLinearState(
   [
-    { id: "source-a", label: "First" },
-    { id: "source-b", label: "Second" },
+    { id: "source-user", role: "user", content: "Hello" },
+    { id: "source-assistant", role: "assistant", content: "Hi" },
   ],
   {
     idFactory: (() => {
-      const ids = ["a", "b"];
+      const ids = ["user-1", "assistant-1"];
       return () => ids.shift() ?? "unused";
     })(),
   },
@@ -132,7 +224,9 @@ Use this helper when you need a duplicate tree that won't collide with ids from
 the source state.
 
 ```ts
-const clonedState = BranchingTree.cloneStateWithNewIds(linearState);
+const clonedState = BranchingTree.cloneStateWithNewIds(linearState, {
+  idPrefix: "copy",
+});
 ```
 
 The optional `options` object supports these fields:
@@ -144,8 +238,8 @@ The optional `options` object supports these fields:
 Both state helpers copy each value with its generated id:
 
 ```ts
-const clonedValue = clonedState.nodes["new-id"]?.value;
-// clonedValue?.id === "new-id"
+const clonedValue = clonedState.nodes["copy-abc123"]?.value;
+// clonedValue?.id === "copy-abc123"
 ```
 
 ## Quality checks

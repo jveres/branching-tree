@@ -47,6 +47,9 @@ describe("BranchingTree", () => {
     expect(tree.hasChildren(ROOT_NODE_ID)).toBe(false);
     expect(tree.getSiblingPosition(ROOT_NODE_ID)).toEqual({ current: 1, total: 1 });
     expect(tree.getSiblings(ROOT_NODE_ID)).toEqual([]);
+    expect(tree.getSiblingValues(ROOT_NODE_ID)).toEqual([]);
+    expect(tree.getSiblingEntries(ROOT_NODE_ID)).toEqual([]);
+    expect(tree.selectedPathEntries).toEqual([]);
   });
 
   it("should append values to the selected path", () => {
@@ -78,6 +81,41 @@ describe("BranchingTree", () => {
     expect(Object.isFrozen(tree.selectedPath)).toBe(true);
   });
 
+  it("should expose cached selected path entries with sibling metadata", () => {
+    const tree = new BranchingTree<Item>();
+    tree.append(item("a"));
+    tree.append(item("b"));
+    tree.addSibling("b", item("b2"));
+    tree.addSibling("b2", item("b3"));
+
+    tree.selectPathTo("b2");
+
+    const entries = tree.selectedPathEntries;
+    expect(entries).toEqual([
+      {
+        value: item("a"),
+        nodeId: "a",
+        parentId: ROOT_NODE_ID,
+        siblingIndex: 0,
+        siblingCount: 1,
+        hasPreviousSibling: false,
+        hasNextSibling: false,
+      },
+      {
+        value: item("b2"),
+        nodeId: "b2",
+        parentId: "a",
+        siblingIndex: 1,
+        siblingCount: 3,
+        hasPreviousSibling: true,
+        hasNextSibling: true,
+      },
+    ]);
+    expect(tree.selectedPathEntries).toBe(entries);
+    expect(Object.isFrozen(entries)).toBe(true);
+    expect(Object.isFrozen(entries[0])).toBe(true);
+  });
+
   it("should reject duplicate node ids when appending", () => {
     const tree = new BranchingTree<Item>();
     tree.append(item("a"));
@@ -101,6 +139,47 @@ describe("BranchingTree", () => {
     expect(tree.update({ id: ROOT_NODE_ID, text: "root" })).toBe(false);
   });
 
+  it("should update inactive nodes without replacing the selected path cache", () => {
+    const tree = new BranchingTree<Item>();
+    tree.append(item("a"));
+    tree.append(item("b"));
+    tree.addSibling("b", item("b2"));
+    tree.selectPathTo("b");
+
+    const selectedPath = tree.selectedPath;
+    const selectedPathEntries = tree.selectedPathEntries;
+
+    expect(tree.update({ id: "b2", text: "inactive update" })).toBe(true);
+    expect(tree.selectedPath).toBe(selectedPath);
+    expect(tree.selectedPathEntries).toBe(selectedPathEntries);
+
+    expect(tree.selectSiblingById("b2")).toBe(true);
+    expect(tree.head).toEqual({ id: "b2", text: "inactive update" });
+  });
+
+  it("should update the selected head directly", () => {
+    const emptyTree = new BranchingTree<Item>();
+    expect(emptyTree.updateHead(item("missing"))).toBe(false);
+
+    const tree = new BranchingTree<Item>();
+    tree.append(item("a"));
+    tree.append(item("b"));
+
+    const selectedPath = tree.selectedPath;
+    const selectedPathEntries = tree.selectedPathEntries;
+
+    expect(tree.updateHead({ id: "a", text: "not the head" })).toBe(false);
+    expect(tree.selectedPath).toBe(selectedPath);
+    expect(tree.selectedPathEntries).toBe(selectedPathEntries);
+
+    expect(tree.updateHead({ id: "b", text: "streamed" })).toBe(true);
+    expect(tree.head).toEqual({ id: "b", text: "streamed" });
+    expect(tree.getState().nodes.b?.value).toEqual({ id: "b", text: "streamed" });
+    expect(tree.selectedPath).not.toBe(selectedPath);
+    expect(tree.selectedPathEntries).not.toBe(selectedPathEntries);
+    expect(tree.selectedPathEntries[1]?.value).toEqual({ id: "b", text: "streamed" });
+  });
+
   it("should add siblings and select the newest sibling", () => {
     const tree = new BranchingTree<Item>();
     tree.append(item("a"));
@@ -112,6 +191,79 @@ describe("BranchingTree", () => {
     expect(tree.getSiblingPosition("b")).toEqual({ current: 1, total: 2 });
     expect(tree.getSiblingPosition("b2")).toEqual({ current: 2, total: 2 });
     expect(tree.getSiblings("b2").map((node) => node.id)).toEqual(["b", "b2"]);
+  });
+
+  it("should return sibling values and entries without exposing node internals", () => {
+    const tree = new BranchingTree<Item>();
+    tree.append(item("a"));
+    tree.append(item("b"));
+    tree.addSibling("b", item("b2"));
+    tree.addSibling("b2", item("b3"));
+
+    const values = tree.getSiblingValues("b2");
+    const entries = tree.getSiblingEntries("b2");
+    const siblings = tree.getSiblings("b2");
+    const firstSibling = siblings[0];
+    firstSibling?.childrenIds.push("external");
+
+    expect(ids(values)).toEqual(["b", "b2", "b3"]);
+    expect(Object.isFrozen(values)).toBe(true);
+    expect(entries).toEqual([
+      {
+        value: item("b"),
+        nodeId: "b",
+        parentId: "a",
+        siblingIndex: 0,
+        siblingCount: 3,
+        hasPreviousSibling: false,
+        hasNextSibling: true,
+        selected: false,
+      },
+      {
+        value: item("b2"),
+        nodeId: "b2",
+        parentId: "a",
+        siblingIndex: 1,
+        siblingCount: 3,
+        hasPreviousSibling: true,
+        hasNextSibling: true,
+        selected: false,
+      },
+      {
+        value: item("b3"),
+        nodeId: "b3",
+        parentId: "a",
+        siblingIndex: 2,
+        siblingCount: 3,
+        hasPreviousSibling: true,
+        hasNextSibling: false,
+        selected: true,
+      },
+    ]);
+    expect(Object.isFrozen(entries)).toBe(true);
+    expect(Object.isFrozen(entries[0])).toBe(true);
+    expect(tree.getSiblings("b2")[0]?.childrenIds).toEqual([]);
+    expect(tree.getSiblingValues("missing")).toEqual([]);
+    expect(tree.getSiblingEntries(ROOT_NODE_ID)).toEqual([]);
+  });
+
+  it("should insert without selecting when requested", () => {
+    const tree = new BranchingTree<Item>();
+    tree.append(item("a"));
+    tree.append(item("b"));
+
+    tree.addSibling("b", item("b2"), { select: false });
+    tree.appendChild("a", item("b3"), { select: false });
+
+    expect(ids(tree.selectedPath)).toEqual(["a", "b"]);
+    expect(ids(tree.getSiblingValues("b"))).toEqual(["b", "b2", "b3"]);
+
+    tree.appendChild("b", item("c"), { select: false });
+
+    expect(ids(tree.selectedPath)).toEqual(["a", "b", "c"]);
+    expect(() => tree.appendChild("missing", item("orphan"))).toThrow(
+      "Parent node missing not found.",
+    );
   });
 
   it("should reject invalid sibling additions", () => {
@@ -141,6 +293,27 @@ describe("BranchingTree", () => {
     expect(tree.selectSibling("b2", 1)).toBe(false);
     expect(tree.selectSibling("missing", 1)).toBe(false);
     expect(tree.selectSibling(ROOT_NODE_ID, 1)).toBe(false);
+  });
+
+  it("should select siblings by index and id", () => {
+    const tree = new BranchingTree<Item>();
+    tree.append(item("a"));
+    tree.append(item("b"));
+    tree.addSibling("b", item("b2"));
+    tree.addSibling("b2", item("b3"));
+
+    expect(tree.selectSiblingAt("b", 0)).toBe(true);
+    expect(ids(tree.selectedPath)).toEqual(["a", "b"]);
+    expect(tree.selectSiblingAt("b", 2)).toBe(true);
+    expect(ids(tree.selectedPath)).toEqual(["a", "b3"]);
+    expect(tree.selectSiblingAt("b", -1)).toBe(false);
+    expect(tree.selectSiblingAt("b", 3)).toBe(false);
+    expect(tree.selectSiblingAt("missing", 0)).toBe(false);
+    expect(tree.selectSiblingAt(ROOT_NODE_ID, 0)).toBe(false);
+    expect(tree.selectSiblingById("b2")).toBe(true);
+    expect(ids(tree.selectedPath)).toEqual(["a", "b2"]);
+    expect(tree.selectSiblingById("missing")).toBe(false);
+    expect(tree.selectSiblingById(ROOT_NODE_ID)).toBe(false);
   });
 
   it("should select the path to any existing node", () => {
@@ -220,6 +393,40 @@ describe("BranchingTree", () => {
     expect(tree.deleteSiblings("missing", { keepTarget: true })).toBe(false);
   });
 
+  it("should delete branches and descendants", () => {
+    const tree = new BranchingTree<Item>();
+    tree.append(item("a"));
+    tree.append(item("b"));
+    tree.append(item("c"));
+    tree.selectPathTo("b");
+    tree.addSibling("b", item("b2"));
+
+    expect(tree.deleteBranch("b2")).toBe(true);
+    expect(tree.deleteBranch("missing")).toBe(false);
+    expect(ids(tree.selectedPath)).toEqual(["a", "b", "c"]);
+
+    expect(tree.deleteDescendants("b")).toBe(true);
+    expect(tree.getState().nodes.c).toBeUndefined();
+    expect(ids(tree.selectedPath)).toEqual(["a", "b"]);
+    expect(tree.deleteDescendants("b")).toBe(false);
+    expect(tree.deleteDescendants("missing")).toBe(false);
+  });
+
+  it("should truncate the selected path after a node", () => {
+    const tree = new BranchingTree<Item>();
+    tree.append(item("a"));
+    tree.append(item("b"));
+    tree.append(item("c"));
+    tree.addSibling("c", item("c2"));
+
+    expect(tree.truncateAfter("b")).toBe(true);
+    expect(ids(tree.selectedPath)).toEqual(["a", "b"]);
+    expect(tree.getState().nodes.c).toBeUndefined();
+    expect(tree.getState().nodes.c2).toBeUndefined();
+    expect(tree.truncateAfter("missing")).toBe(false);
+    expect(tree.truncateAfter("b")).toBe(false);
+  });
+
   it("should load state and clamp selected child indexes", () => {
     const state: BranchingTreeState<Item> = {
       rootId: ROOT_NODE_ID,
@@ -261,6 +468,28 @@ describe("BranchingTree", () => {
 
     expect(tree.rootNodeId).toBe(ROOT_NODE_ID);
     expect(tree.selectedPath).toEqual([]);
+  });
+
+  it("should expose selected path metadata for a valued root state", () => {
+    const tree = new BranchingTree<Item>({
+      rootId: ROOT_NODE_ID,
+      nodes: {
+        [ROOT_NODE_ID]: { ...rootNode(), value: item(ROOT_NODE_ID) },
+      },
+    });
+
+    expect(ids(tree.selectedPath)).toEqual([ROOT_NODE_ID]);
+    expect(tree.selectedPathEntries).toEqual([
+      {
+        value: item(ROOT_NODE_ID),
+        nodeId: ROOT_NODE_ID,
+        parentId: null,
+        siblingIndex: 0,
+        siblingCount: 1,
+        hasPreviousSibling: false,
+        hasNextSibling: false,
+      },
+    ]);
   });
 
   it("should reset to a custom root id", () => {
