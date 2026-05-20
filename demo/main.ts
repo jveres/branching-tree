@@ -26,14 +26,11 @@ type PositionedNode = {
   depth: number;
   siblingIndex: number;
   siblingCount: number;
-  selected: boolean;
   descendantCount: number;
 };
 
 type PositionedEdge = {
   id: string;
-  fromId: string;
-  toId: string;
   d: string;
 };
 
@@ -41,7 +38,7 @@ type LayoutModel = {
   nodes: PositionedNode[];
   edges: PositionedEdge[];
   nodeById: Map<string, PositionedNode>;
-  edgeById: Map<string, PositionedEdge>;
+  edgeIds: Set<string>;
   width: number;
   height: number;
   maxDepth: number;
@@ -362,7 +359,7 @@ function createVisibleLayout(): LayoutModel {
   const nodes: PositionedNode[] = [];
   const edges: PositionedEdge[] = [];
   const nodeById = new Map<string, PositionedNode>();
-  const edgeById = new Map<string, PositionedEdge>();
+  const edgeIds = new Set<string>();
   const entries = tree.selectedPathEntries;
 
   for (let depth = 0; depth < entries.length; depth++) {
@@ -385,7 +382,6 @@ function createVisibleLayout(): LayoutModel {
         depth,
         siblingIndex: sibling.siblingIndex,
         siblingCount: sibling.siblingCount,
-        selected: sibling.selected,
         descendantCount: descendantCounts.get(sibling.nodeId) ?? 0,
       };
 
@@ -405,12 +401,10 @@ function createVisibleLayout(): LayoutModel {
 
     const edge: PositionedEdge = {
       id: createEdgeId(parent.id, child.id),
-      fromId: parent.id,
-      toId: child.id,
       d: createEdgePath(parent, child),
     };
     edges.push(edge);
-    edgeById.set(edge.id, edge);
+    edgeIds.add(edge.id);
   }
 
   const bounds = getLayoutBounds(nodes);
@@ -420,7 +414,7 @@ function createVisibleLayout(): LayoutModel {
     nodes,
     edges,
     nodeById,
-    edgeById,
+    edgeIds,
     width: bounds.width,
     height: bounds.height,
     maxDepth: stats.maxDepth,
@@ -524,8 +518,8 @@ function resetSvgLayers(): void {
 }
 
 function syncMap(model: LayoutModel): void {
-  removeMissingElements(edgeElements, model.edgeById);
-  removeMissingElements(nodeElements, model.nodeById);
+  removeMissingElements(edgeElements, (id) => model.edgeIds.has(id));
+  removeMissingElements(nodeElements, (id) => model.nodeById.has(id));
 
   for (const edge of model.edges) {
     const element = edgeElements.get(edge.id);
@@ -550,10 +544,10 @@ function syncMap(model: LayoutModel): void {
 
 function removeMissingElements<T extends Element>(
   elements: Map<string, T>,
-  nextElements: ReadonlyMap<string, unknown>,
+  hasNextElement: (id: string) => boolean,
 ): void {
   for (const [id, element] of elements) {
-    if (!nextElements.has(id)) {
+    if (!hasNextElement(id)) {
       element.remove();
       elements.delete(id);
     }
@@ -926,7 +920,7 @@ function createEmptyLayout(): LayoutModel {
     nodes: [],
     edges: [],
     nodeById: new Map(),
-    edgeById: new Map(),
+    edgeIds: new Set(),
     width: 1,
     height: 1,
     maxDepth: 0,
