@@ -477,6 +477,8 @@ export class BranchingTree<T extends Identified> {
   ): BranchingTreeSiblingEntry<T> {
     const siblingCount = parent.childrenIds.length;
 
+    const selectedIndex = clampIndex(parent.selectedChildIndex, siblingCount - 1);
+
     return Object.freeze({
       value: node.value!,
       nodeId: node.id,
@@ -485,7 +487,7 @@ export class BranchingTree<T extends Identified> {
       siblingCount,
       hasPreviousSibling: siblingIndex > 0,
       hasNextSibling: siblingIndex < siblingCount - 1,
-      selected: parent.selectedChildIndex === siblingIndex,
+      selected: selectedIndex === siblingIndex,
     });
   }
 
@@ -572,6 +574,8 @@ export class BranchingTree<T extends Identified> {
     let parentId = rootId;
     for (const value of values) {
       const id = createId();
+      if (nodes[id]) throw new Error(`Generated node id ${id} already exists.`);
+
       nodes[id] = {
         id,
         value: { ...value, id },
@@ -593,9 +597,16 @@ export class BranchingTree<T extends Identified> {
     const rootId = options.rootId ?? state.rootId;
     const createId = options.idFactory ?? (() => BranchingTree.createNodeId(options.idPrefix));
     const idMap = new Map<string, string>([[state.rootId, rootId]]);
+    const usedIds = new Set<string>([rootId]);
 
     for (const nodeId of Object.keys(state.nodes)) {
-      if (nodeId !== state.rootId) idMap.set(nodeId, createId());
+      if (nodeId === state.rootId) continue;
+
+      const id = createId();
+      if (usedIds.has(id)) throw new Error(`Generated node id ${id} already exists.`);
+
+      usedIds.add(id);
+      idMap.set(nodeId, id);
     }
 
     const getMappedId = (id: string): string => {

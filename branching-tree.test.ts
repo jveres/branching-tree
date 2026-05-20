@@ -329,6 +329,22 @@ describe("BranchingTree", () => {
     expect(() => tree.selectPathTo("missing")).toThrow("Node missing not found.");
   });
 
+  it("should update inactive sibling groups without selecting their ancestors", () => {
+    const tree = new BranchingTree<Item>();
+    tree.append(item("a"));
+    tree.append(item("b"));
+    tree.addSibling("a", item("x"));
+    tree.append(item("y"));
+    tree.appendChild("x", item("z"));
+    tree.selectPathTo("b");
+
+    expect(tree.selectSiblingAt("y", 1)).toBe(true);
+    expect(ids(tree.selectedPath)).toEqual(["a", "b"]);
+
+    expect(tree.selectSiblingById("x")).toBe(true);
+    expect(ids(tree.selectedPath)).toEqual(["x", "z"]);
+  });
+
   it("should delete a node and its subtree", () => {
     const tree = new BranchingTree<Item>();
     tree.append(item("a"));
@@ -359,6 +375,32 @@ describe("BranchingTree", () => {
 
     expect(deleted).toBe(true);
     expect(ids(tree.selectedPath)).toEqual(["a", "b"]);
+  });
+
+  it("should preserve selection when deleting an earlier sibling", () => {
+    const tree = new BranchingTree<Item>();
+    tree.append(item("a"));
+    tree.append(item("b"));
+    tree.addSibling("b", item("b2"));
+    tree.addSibling("b2", item("b3"));
+
+    expect(tree.deleteNode("b")).toBe(true);
+
+    expect(ids(tree.selectedPath)).toEqual(["a", "b3"]);
+    expect(tree.getState().nodes.a?.childrenIds).toEqual(["b2", "b3"]);
+  });
+
+  it("should select the previous sibling when deleting the selected last sibling", () => {
+    const tree = new BranchingTree<Item>();
+    tree.append(item("a"));
+    tree.append(item("b"));
+    tree.addSibling("b", item("b2"));
+    tree.addSibling("b2", item("b3"));
+
+    expect(tree.deleteNode("b3")).toBe(true);
+
+    expect(ids(tree.selectedPath)).toEqual(["a", "b2"]);
+    expect(tree.getSiblingPosition("b2")).toEqual({ current: 2, total: 2 });
   });
 
   it("should delete all siblings", () => {
@@ -427,6 +469,24 @@ describe("BranchingTree", () => {
     expect(tree.truncateAfter("b")).toBe(false);
   });
 
+  it("should support root-level path selection and pruning", () => {
+    const tree = new BranchingTree<Item>();
+    tree.append(item("a"));
+    tree.append(item("b"));
+
+    tree.selectPathTo(ROOT_NODE_ID);
+
+    expect(ids(tree.selectedPath)).toEqual(["a", "b"]);
+    expect(tree.deleteDescendants(ROOT_NODE_ID)).toBe(true);
+    expect(tree.getState()).toEqual({
+      rootId: ROOT_NODE_ID,
+      nodes: {
+        [ROOT_NODE_ID]: rootNode(),
+      },
+    });
+    expect(tree.truncateAfter(ROOT_NODE_ID)).toBe(false);
+  });
+
   it("should load state and clamp selected child indexes", () => {
     const state: BranchingTreeState<Item> = {
       rootId: ROOT_NODE_ID,
@@ -442,6 +502,37 @@ describe("BranchingTree", () => {
     const tree = new BranchingTree(state);
 
     expect(ids(tree.selectedPath)).toEqual(["a", "c"]);
+    expect(tree.getSiblingEntries("a").map((entry) => entry.selected)).toEqual([true, false]);
+    expect(tree.getSiblingEntries("c").map((entry) => entry.selected)).toEqual([false, true]);
+    expect(tree.selectedPathEntries[1]).toMatchObject({
+      nodeId: "c",
+      siblingIndex: 1,
+      siblingCount: 2,
+    });
+  });
+
+  it("should clone loaded state and leave current state unchanged after a failed load", () => {
+    const state: BranchingTreeState<Item> = {
+      rootId: ROOT_NODE_ID,
+      nodes: {
+        [ROOT_NODE_ID]: rootNode(["a"]),
+        a: treeNode("a", ROOT_NODE_ID),
+      },
+    };
+    const tree = new BranchingTree(state);
+
+    state.nodes[ROOT_NODE_ID]?.childrenIds.push("external");
+
+    expect(tree.getState().nodes[ROOT_NODE_ID]?.childrenIds).toEqual(["a"]);
+    expect(() =>
+      tree.loadState({
+        rootId: ROOT_NODE_ID,
+        nodes: {
+          [ROOT_NODE_ID]: rootNode(["missing"]),
+        },
+      } as BranchingTreeState<Item>),
+    ).toThrow("Node branching-tree-root has missing child missing.");
+    expect(ids(tree.selectedPath)).toEqual(["a"]);
   });
 
   it("should insert a missing default root when loading an empty default-root state", () => {
@@ -692,6 +783,20 @@ describe("BranchingTree", () => {
     expect(BranchingTree.createNodeId()).toBe("node-i");
   });
 
+  it("should create an empty linear state", () => {
+    expect(BranchingTree.createLinearState([], { rootId: "root" })).toEqual({
+      rootId: "root",
+      nodes: {
+        root: {
+          id: "root",
+          parentId: null,
+          childrenIds: [],
+          selectedChildIndex: 0,
+        },
+      },
+    });
+  });
+
   it("should create linear state with generated ids", () => {
     const state = BranchingTree.createLinearState([item("old-a"), item("old-b")], {
       idFactory: (() => {
@@ -736,6 +841,33 @@ describe("BranchingTree", () => {
 
     expect(createNodeId).toHaveBeenCalledWith(undefined);
     expect(state.nodes.generated?.value).toEqual({ id: "generated", text: "OLD" });
+  });
+
+  it("should create linear state with an id prefix", () => {
+    const createNodeId = vi.spyOn(BranchingTree, "createNodeId");
+    createNodeId.mockReturnValueOnce("message-1");
+
+    const state = BranchingTree.createLinearState([item("old")], { idPrefix: "message" });
+
+    expect(createNodeId).toHaveBeenCalledWith("message");
+    expect(state.nodes["message-1"]?.value).toEqual({ id: "message-1", text: "OLD" });
+  });
+
+  it("should reject duplicate generated ids for linear state", () => {
+    expect(() =>
+      BranchingTree.createLinearState([item("old-a"), item("old-b")], {
+        idFactory: () => "duplicate",
+      }),
+    ).toThrow("Generated node id duplicate already exists.");
+  });
+
+  it("should reject linear state ids that collide with the root id", () => {
+    expect(() =>
+      BranchingTree.createLinearState([item("old")], {
+        idFactory: () => "root",
+        rootId: "root",
+      }),
+    ).toThrow("Generated node id root already exists.");
   });
 
   it("should clone state with new ids", () => {
@@ -793,6 +925,45 @@ describe("BranchingTree", () => {
     expect(createNodeId).toHaveBeenCalledWith(undefined);
     expect(cloned.rootId).toBe(ROOT_NODE_ID);
     expect(cloned.nodes.generated?.value).toEqual({ id: "generated", text: "OLD" });
+  });
+
+  it("should clone state with an id prefix", () => {
+    const createNodeId = vi.spyOn(BranchingTree, "createNodeId");
+    createNodeId.mockReturnValueOnce("copy-1");
+    const source = BranchingTree.createLinearState([item("old")], {
+      idFactory: () => "source",
+    });
+
+    const cloned = BranchingTree.cloneStateWithNewIds(source, { idPrefix: "copy" });
+
+    expect(createNodeId).toHaveBeenCalledWith("copy");
+    expect(cloned.nodes["copy-1"]?.value).toEqual({ id: "copy-1", text: "OLD" });
+  });
+
+  it("should reject duplicate generated ids when cloning state", () => {
+    const source = BranchingTree.createLinearState([item("old-a"), item("old-b")], {
+      idFactory: (() => {
+        const generatedIds = ["a", "b"];
+        return () => generatedIds.shift() ?? "unused";
+      })(),
+    });
+
+    expect(() =>
+      BranchingTree.cloneStateWithNewIds(source, { idFactory: () => "duplicate" }),
+    ).toThrow("Generated node id duplicate already exists.");
+  });
+
+  it("should reject cloned ids that collide with the cloned root id", () => {
+    const source = BranchingTree.createLinearState([item("old")], {
+      idFactory: () => "source",
+    });
+
+    expect(() =>
+      BranchingTree.cloneStateWithNewIds(source, {
+        idFactory: () => "root",
+        rootId: "root",
+      }),
+    ).toThrow("Generated node id root already exists.");
   });
 
   it.each([
