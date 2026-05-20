@@ -14,7 +14,6 @@ type DemoMessage = Identified & {
   content: string;
   tokenCount: number;
   turn: number;
-  versionLabel: string;
 };
 
 type PositionedNode = {
@@ -142,6 +141,16 @@ const pathList = mustElement<HTMLOListElement>("path-list");
 const fitButton = mustElement<HTMLButtonElement>("fit-button");
 const zoomInButton = mustElement<HTMLButtonElement>("zoom-in-button");
 const zoomOutButton = mustElement<HTMLButtonElement>("zoom-out-button");
+const previousVersionButton = mustElement<HTMLButtonElement>("previous-version-button");
+const nextVersionButton = mustElement<HTMLButtonElement>("next-version-button");
+const addVersionButton = mustElement<HTMLButtonElement>("add-version-button");
+const addChildButton = mustElement<HTMLButtonElement>("add-child-button");
+const truncateButton = mustElement<HTMLButtonElement>("truncate-button");
+const keepVersionButton = mustElement<HTMLButtonElement>("keep-version-button");
+const deleteBranchButton = mustElement<HTMLButtonElement>("delete-branch-button");
+const deleteSiblingsButton = mustElement<HTMLButtonElement>("delete-siblings-button");
+const loadLinearButton = mustElement<HTMLButtonElement>("load-linear-button");
+const resetTreeButton = mustElement<HTMLButtonElement>("reset-tree-button");
 const sizeButtons = Array.from(document.querySelectorAll<HTMLButtonElement>("[data-size]"));
 
 let tree = new BranchingTree<DemoMessage>();
@@ -156,7 +165,10 @@ let viewportGroup: SVGGElement | null = null;
 let edgeLayer: SVGGElement | null = null;
 let nodeLayer: SVGGElement | null = null;
 let dragState: DragState | null = null;
+let inspectorNodeId: string | null = null;
 let suppressNextClick = false;
+let currentSize = DEFAULT_SIZE;
+let nextGeneratedSeed = DEFAULT_SIZE + 1;
 let camera: Camera = { x: 0, y: 0, scale: 1 };
 
 loadTree(DEFAULT_SIZE);
@@ -164,14 +176,25 @@ loadTree(DEFAULT_SIZE);
 fitButton.addEventListener("click", () => fitMap());
 zoomInButton.addEventListener("click", () => zoomBy(1.18));
 zoomOutButton.addEventListener("click", () => zoomBy(0.85));
+previousVersionButton.addEventListener("click", () => selectAdjacentSibling(-1));
+nextVersionButton.addEventListener("click", () => selectAdjacentSibling(1));
+addVersionButton.addEventListener("click", () => addVersion());
+addChildButton.addEventListener("click", () => addChild());
+truncateButton.addEventListener("click", () => truncateAfterSelection());
+keepVersionButton.addEventListener("click", () => keepOnlyVersion());
+deleteBranchButton.addEventListener("click", () => deleteBranch());
+deleteSiblingsButton.addEventListener("click", () => deleteSiblingGroup());
+loadLinearButton.addEventListener("click", () => loadLinearTranscript());
+resetTreeButton.addEventListener("click", () => {
+  loadTree(currentSize);
+  setActiveSizeButton(currentSize);
+});
 
 for (const button of sizeButtons) {
   button.addEventListener("click", () => {
     const size = Number(button.dataset.size ?? DEFAULT_SIZE);
     loadTree(size);
-    for (const sizeButton of sizeButtons) {
-      sizeButton.classList.toggle("is-active", sizeButton === button);
-    }
+    setActiveSizeButton(size);
   });
 }
 
@@ -246,8 +269,25 @@ mapPanel.addEventListener("wheel", (event) => handleWheel(event), { passive: fal
 window.addEventListener("resize", () => fitMap());
 
 function loadTree(size: number): void {
+  currentSize = size;
+  loadState(createDemoState(size), size + 1);
+}
+
+function loadLinearTranscript(): void {
+  const transcript = createLinearTranscript();
+  loadState(
+    BranchingTree.createLinearState(transcript, {
+      idFactory: createSequentialIdFactory("linear"),
+    }),
+    transcript.length + 1,
+  );
+  setActiveSizeButton(null);
+}
+
+function loadState(state: BranchingTreeState<DemoMessage>, nextSeed: number): void {
   const started = performance.now();
-  tree = new BranchingTree(createDemoState(size));
+  nextGeneratedSeed = nextSeed;
+  tree = new BranchingTree(state);
   positionCache = new Map();
   resetSvgLayers();
   layout = createVisibleLayout();
@@ -258,10 +298,50 @@ function loadTree(size: number): void {
   if (headId) {
     applySelectionClasses();
     renderInspector(headId);
+  } else {
+    applySelectionClasses();
+    renderEmptyInspector();
   }
 
   renderTime.textContent = formatMs(performance.now() - started);
   updateMetrics();
+}
+
+function createLinearTranscript(): DemoMessage[] {
+  return [
+    createImportedMessage("source-system", "system", "You are a concise product assistant.", 0, 24),
+    createImportedMessage("source-user-1", "user", "Summarize the current workspace state.", 0, 38),
+    createImportedMessage(
+      "source-assistant-1",
+      "assistant",
+      "The tree keeps one active transcript while preserving alternate message versions.",
+      0,
+      84,
+    ),
+    createImportedMessage("source-user-2", "user", "Show the operations a chat UI needs.", 1, 42),
+    createImportedMessage(
+      "source-assistant-2",
+      "assistant",
+      "Version switching, branch pruning, truncation, and regeneration all map to tree APIs.",
+      1,
+      92,
+    ),
+  ];
+}
+
+function createImportedMessage(
+  id: string,
+  role: ChatRole,
+  content: string,
+  turn: number,
+  tokenCount: number,
+): DemoMessage {
+  return { id, role, content, tokenCount, turn };
+}
+
+function createSequentialIdFactory(prefix: string): () => string {
+  let nextId = 1;
+  return () => `${prefix}-${String(nextId++).padStart(4, "0")}`;
 }
 
 function createDemoState(targetNodeCount: number): BranchingTreeState<DemoMessage> {
@@ -326,7 +406,7 @@ function createMessage(
   const source = role === "assistant" ? answers : prompts;
   const text =
     source[Math.abs(seed + siblingIndex + depth) % source.length] ?? source[0] ?? "Message";
-  const versionLabel = siblingCount === 1 ? "main" : `v${siblingIndex + 1}/${siblingCount}`;
+  const versionLabel = getVersionLabel(siblingIndex, siblingCount);
 
   return {
     id,
@@ -334,7 +414,6 @@ function createMessage(
     content: `${text} ${versionLabel === "main" ? "" : `Alternative ${versionLabel}.`}`.trim(),
     tokenCount: 18 + ((seed + depth * 7 + siblingIndex * 11) % 180),
     turn,
-    versionLabel,
   };
 }
 
@@ -350,6 +429,10 @@ function getChildCount(depth: number, seed: number): number {
 function getRole(depth: number): ChatRole {
   if (depth === 0) return "system";
   return depth % 2 === 0 ? "assistant" : "user";
+}
+
+function getVersionLabel(siblingIndex: number, siblingCount: number): string {
+  return siblingCount === 1 ? "main" : `v${siblingIndex + 1}/${siblingCount}`;
 }
 
 function createVisibleLayout(): LayoutModel {
@@ -571,12 +654,13 @@ function appendNodeElement(node: PositionedNode): void {
   const label = svgElement("text");
   const meta = svgElement("text");
   const title = svgElement("title");
+  const versionLabel = getVersionLabel(node.siblingIndex, node.siblingCount);
 
   group.setAttribute("class", `tree-node role-${node.value.role} is-new`);
   group.setAttribute("transform", `translate(${node.x} ${node.y})`);
   group.setAttribute("tabindex", "0");
   group.setAttribute("role", "treeitem");
-  group.setAttribute("aria-label", `${node.value.role} ${node.id} ${node.value.versionLabel}`);
+  group.setAttribute("aria-label", `${node.value.role} ${node.id} ${versionLabel}`);
   group.dataset.id = node.id;
   group.addEventListener("click", (event) => {
     event.stopPropagation();
@@ -602,7 +686,7 @@ function appendNodeElement(node: PositionedNode): void {
   label.setAttribute("class", "node-label");
   label.setAttribute("x", String(-NODE_WIDTH / 2 + 54));
   label.setAttribute("y", "-8");
-  label.textContent = `${node.value.id} · ${node.value.versionLabel}`;
+  label.textContent = `${node.value.id} · ${versionLabel}`;
 
   meta.setAttribute("class", "node-meta");
   meta.setAttribute("x", String(-NODE_WIDTH / 2 + 12));
@@ -635,15 +719,162 @@ function selectNode(id: string, measure = true): void {
 
   const started = performance.now();
   tree.selectPathTo(id);
+  refreshView(id);
+
+  if (measure) selectTime.textContent = formatMs(performance.now() - started);
+}
+
+function refreshView(preferredInspectorId: string | null): void {
   layout = createVisibleLayout();
   syncMap(layout);
   applySelectionClasses();
 
-  const inspectorId = layout.nodeById.has(id) ? id : (tree.head?.id ?? id);
-  renderInspector(inspectorId);
+  const nextInspectorId = getInspectableId(preferredInspectorId);
+  if (nextInspectorId) {
+    renderInspector(nextInspectorId);
+  } else {
+    renderEmptyInspector();
+  }
   updateMetrics();
+}
 
-  if (measure) selectTime.textContent = formatMs(performance.now() - started);
+function getInspectableId(preferredId: string | null): string | null {
+  if (preferredId && layout.nodeById.has(preferredId)) return preferredId;
+
+  const headId = tree.head?.id ?? null;
+  if (headId && layout.nodeById.has(headId)) return headId;
+
+  return layout.nodes[0]?.id ?? null;
+}
+
+function selectSiblingVersion(id: string): void {
+  const started = performance.now();
+  if (!tree.selectSiblingById(id)) return;
+
+  refreshView(id);
+  selectTime.textContent = formatMs(performance.now() - started);
+}
+
+function selectAdjacentSibling(offset: number): void {
+  if (!inspectorNodeId) return;
+
+  const siblings = tree.getSiblingEntries(inspectorNodeId);
+  const current = siblings.find((entry) => entry.nodeId === inspectorNodeId);
+  if (!current) return;
+
+  const next = siblings[current.siblingIndex + offset];
+  if (!next) return;
+
+  const started = performance.now();
+  if (!tree.selectSibling(inspectorNodeId, offset)) return;
+
+  refreshView(next.nodeId);
+  selectTime.textContent = formatMs(performance.now() - started);
+}
+
+function addVersion(): void {
+  if (!inspectorNodeId) return;
+
+  const reference = layout.nodeById.get(inspectorNodeId);
+  if (!reference) return;
+
+  const started = performance.now();
+  const id = createGeneratedId();
+  tree.addSibling(inspectorNodeId, {
+    ...createGeneratedMessage(
+      id,
+      reference.depth,
+      reference.siblingCount,
+      reference.siblingCount + 1,
+    ),
+    role: reference.value.role,
+    turn: reference.value.turn,
+  });
+  refreshView(id);
+  selectTime.textContent = formatMs(performance.now() - started);
+}
+
+function addChild(): void {
+  if (!inspectorNodeId) return;
+
+  const parent = layout.nodeById.get(inspectorNodeId);
+  if (!parent) return;
+
+  const started = performance.now();
+  const state = tree.getState();
+  const siblingIndex = state.nodes[inspectorNodeId]?.childrenIds.length ?? 0;
+  const depth = parent.depth + 1;
+  const id = createGeneratedId();
+
+  tree.appendChild(
+    inspectorNodeId,
+    createGeneratedMessage(id, depth, siblingIndex, siblingIndex + 1),
+  );
+  refreshView(id);
+  selectTime.textContent = formatMs(performance.now() - started);
+}
+
+function truncateAfterSelection(): void {
+  if (!inspectorNodeId) return;
+
+  const id = inspectorNodeId;
+  mutateTree(() => tree.truncateAfter(id), id);
+}
+
+function keepOnlyVersion(): void {
+  if (!inspectorNodeId) return;
+
+  const id = inspectorNodeId;
+  mutateTree(() => tree.deleteSiblings(id, { keepTarget: true }), id);
+}
+
+function deleteBranch(): void {
+  if (!inspectorNodeId) return;
+
+  const id = inspectorNodeId;
+  mutateTree(() => tree.deleteBranch(id), null);
+}
+
+function deleteSiblingGroup(): void {
+  if (!inspectorNodeId) return;
+
+  const id = inspectorNodeId;
+  mutateTree(() => tree.deleteSiblings(id), null);
+}
+
+function mutateTree(mutator: () => boolean, preferredInspectorId: string | null): void {
+  const started = performance.now();
+  if (!mutator()) return;
+
+  refreshView(preferredInspectorId);
+  selectTime.textContent = formatMs(performance.now() - started);
+}
+
+function createGeneratedId(): string {
+  let id = BranchingTree.createNodeId("msg");
+  while (tree.hasNode(id)) {
+    id = BranchingTree.createNodeId("msg");
+  }
+  return id;
+}
+
+function createGeneratedMessage(
+  id: string,
+  depth: number,
+  siblingIndex: number,
+  siblingCount: number,
+): DemoMessage {
+  const seed = nextGeneratedSeed;
+  nextGeneratedSeed++;
+
+  return createMessage(
+    id,
+    depth,
+    Math.max(0, Math.floor(depth / 2)),
+    siblingIndex,
+    siblingCount,
+    seed,
+  );
 }
 
 function applySelectionClasses(): void {
@@ -676,6 +907,7 @@ function renderInspector(id: string): void {
   const node = layout.nodeById.get(id);
   if (!node) return;
 
+  inspectorNodeId = id;
   const siblingPosition = tree.getSiblingPosition(id);
   messageTitle.textContent = `${node.value.id} · turn ${node.value.turn}`;
   messageRole.textContent = node.value.role;
@@ -685,6 +917,19 @@ function renderInspector(id: string): void {
 
   renderSiblingList(id);
   renderPathList();
+  updateActionButtons(id);
+}
+
+function renderEmptyInspector(): void {
+  inspectorNodeId = null;
+  messageTitle.textContent = "No message";
+  messageRole.textContent = "-";
+  messageVersion.textContent = "-";
+  messageTokens.textContent = "-";
+  messageContent.textContent = "";
+  siblingList.textContent = "";
+  pathList.textContent = "";
+  updateActionButtons(null);
 }
 
 function renderSiblingList(id: string): void {
@@ -707,12 +952,12 @@ function renderSiblingList(id: string): void {
 
     button.type = "button";
     button.className = `version-button${entry.selected ? " is-selected" : ""}`;
-    button.addEventListener("click", () => selectNode(entry.nodeId));
+    button.addEventListener("click", () => selectSiblingVersion(entry.nodeId));
 
     index.className = "version-index";
     index.textContent = String(entry.siblingIndex + 1);
     label.className = "version-label";
-    label.textContent = `${entry.value.id} ${entry.value.versionLabel}`;
+    label.textContent = `${entry.value.id} ${getVersionLabel(entry.siblingIndex, entry.siblingCount)}`;
     role.className = "version-role";
     role.textContent = entry.value.role;
 
@@ -744,6 +989,31 @@ function renderPathList(): void {
     fragment.append(item);
   }
   pathList.append(fragment);
+}
+
+function updateActionButtons(id: string | null): void {
+  const entry = id
+    ? tree.selectedPathEntries.find((pathEntry) => pathEntry.nodeId === id)
+    : undefined;
+  const hasSelection = id !== null;
+  const hasSiblings = (entry?.siblingCount ?? 0) > 1;
+
+  previousVersionButton.disabled = !entry?.hasPreviousSibling;
+  nextVersionButton.disabled = !entry?.hasNextSibling;
+  addVersionButton.disabled = !hasSelection;
+  addChildButton.disabled = !hasSelection;
+  truncateButton.disabled = !id || !tree.hasChildren(id);
+  keepVersionButton.disabled = !hasSelection || !hasSiblings;
+  deleteBranchButton.disabled = !hasSelection;
+  deleteSiblingsButton.disabled = !hasSelection;
+  loadLinearButton.disabled = false;
+  resetTreeButton.disabled = false;
+}
+
+function setActiveSizeButton(size: number | null): void {
+  for (const button of sizeButtons) {
+    button.classList.toggle("is-active", Number(button.dataset.size) === size);
+  }
 }
 
 function updateMetrics(): void {

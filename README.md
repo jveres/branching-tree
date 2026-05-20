@@ -252,7 +252,11 @@ descendants.
 
 The demo supports drag-to-pan, wheel zoom, zoom buttons, Shift-wheel pan,
 double-click zoom, fit-to-view, size presets, click-to-select nodes, sibling
-version switching, and active path highlighting.
+version switching, active path highlighting, adding versions and child messages,
+truncating after a message, deleting branches, and pruning sibling groups with
+or without keeping the selected version. It also includes a linear transcript
+import action backed by `BranchingTree.createLinearState` and uses
+`BranchingTree.createNodeId` when generating new demo messages.
 
 ```sh
 pnpm run demo

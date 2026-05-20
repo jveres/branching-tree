@@ -30,7 +30,7 @@
         <div class="metric"><strong id="edge-count">0</strong><span>links</span></div>
         <div class="metric"><strong id="path-count">0</strong><span>active</span></div>
         <div class="metric"><strong id="render-time">0 ms</strong><span>layout</span></div>
-        <div class="metric"><strong id="select-time">0 ms</strong><span>select</span></div>
+        <div class="metric"><strong id="select-time">0 ms</strong><span>action</span></div>
       </section>
 
       <section class="workspace">
@@ -52,6 +52,22 @@
           <section class="inspect-section">
             <h2>Versions</h2>
             <div id="sibling-list" class="sibling-list"></div>
+          </section>
+
+          <section class="inspect-section">
+            <h2>Actions</h2>
+            <div class="action-grid" aria-label="Branch actions">
+              <button type="button" class="action-button" id="previous-version-button">Previous</button>
+              <button type="button" class="action-button" id="next-version-button">Next</button>
+              <button type="button" class="action-button" id="add-version-button">Add version</button>
+              <button type="button" class="action-button" id="add-child-button">Add child</button>
+              <button type="button" class="action-button" id="truncate-button">Truncate after</button>
+              <button type="button" class="action-button" id="keep-version-button">Keep only</button>
+              <button type="button" class="action-button is-danger" id="delete-branch-button">Delete branch</button>
+              <button type="button" class="action-button is-danger" id="delete-siblings-button">Delete group</button>
+              <button type="button" class="action-button" id="load-linear-button">Load linear</button>
+              <button type="button" class="action-button" id="reset-tree-button">Reset sample</button>
+            </div>
           </section>
 
           <section class="inspect-section path-section">
