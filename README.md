@@ -242,6 +242,27 @@ const clonedValue = clonedState.nodes["copy-abc123"]?.value;
 // clonedValue?.id === "copy-abc123"
 ```
 
+## Demo
+
+The repository includes a browser demo that loads a large chat-like branching
+tree and renders it as a top-down conversation version map. The visible map stays
+focused on the selected path and sibling versions, keeps reused nodes in stable
+positions when switching versions, and uses compact subtree badges for hidden
+descendants.
+
+The demo supports drag-to-pan, wheel zoom, zoom buttons, Shift-wheel pan,
+double-click zoom, fit-to-view, size presets, click-to-select nodes, sibling
+version switching, and active path highlighting.
+
+```sh
+pnpm run demo
+```
+
+Open the local Vite URL printed by the command. The demo remembers node
+coordinates across version switches, reuses existing SVG elements where possible,
+and appends only newly needed nodes for the selected path window. This keeps path
+switching responsive on trees with hundreds of messages.
+
 ## Quality checks
 
 The project uses TypeScript, Vitest, oxlint, and oxfmt. The `check` script runs

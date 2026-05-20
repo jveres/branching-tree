@@ -6,18 +6,20 @@
   "scripts": {
     "check": "pnpm run format:check && pnpm run lint && pnpm run typecheck && pnpm run test",
     "coverage": "vitest run --coverage",
-    "format": "oxfmt --write branching-tree.ts branching-tree.test.ts vitest.config.ts package.json tsconfig.json pnpm-workspace.yaml .oxfmtrc.json .oxlintrc.json README.md",
-    "format:check": "oxfmt --check branching-tree.ts branching-tree.test.ts vitest.config.ts package.json tsconfig.json pnpm-workspace.yaml .oxfmtrc.json .oxlintrc.json README.md",
-    "lint": "oxlint --vitest-plugin branching-tree.ts branching-tree.test.ts vitest.config.ts",
+    "format": "oxfmt --write branching-tree.ts branching-tree.test.ts demo/main.ts vitest.config.ts package.json tsconfig.json pnpm-workspace.yaml .oxfmtrc.json .oxlintrc.json README.md",
+    "format:check": "oxfmt --check branching-tree.ts branching-tree.test.ts demo/main.ts vitest.config.ts package.json tsconfig.json pnpm-workspace.yaml .oxfmtrc.json .oxlintrc.json README.md",
+    "lint": "oxlint --vitest-plugin branching-tree.ts branching-tree.test.ts demo/main.ts vitest.config.ts",
     "test": "vitest run --coverage",
     "test:unit": "vitest run",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "demo": "vite --host 127.0.0.1"
   },
   "devDependencies": {
     "@vitest/coverage-v8": "4.1.7",
     "oxfmt": "0.51.0",
     "oxlint": "1.66.0",
     "typescript": "6.0.3",
+    "vite": "8.0.13",
     "vitest": "4.1.7"
   },
   "packageManager": "pnpm@11.1.3"
