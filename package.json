@@ -1,0 +1,24 @@
+{
+  "name": "branching-tree",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "check": "pnpm run format:check && pnpm run lint && pnpm run typecheck && pnpm run test",
+    "coverage": "vitest run --coverage",
+    "format": "oxfmt --write branching-tree.ts branching-tree.test.ts vitest.config.ts package.json tsconfig.json pnpm-workspace.yaml .oxfmtrc.json .oxlintrc.json README.md",
+    "format:check": "oxfmt --check branching-tree.ts branching-tree.test.ts vitest.config.ts package.json tsconfig.json pnpm-workspace.yaml .oxfmtrc.json .oxlintrc.json README.md",
+    "lint": "oxlint --vitest-plugin branching-tree.ts branching-tree.test.ts vitest.config.ts",
+    "test": "vitest run --coverage",
+    "test:unit": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@vitest/coverage-v8": "4.1.7",
+    "oxfmt": "0.51.0",
+    "oxlint": "1.66.0",
+    "typescript": "6.0.3",
+    "vitest": "4.1.7"
+  },
+  "packageManager": "pnpm@11.1.3"
+}
