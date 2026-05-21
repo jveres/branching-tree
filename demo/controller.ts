@@ -170,6 +170,7 @@ let currentSize: DemoSize = DEFAULT_SIZE;
 let nextGeneratedSeed = DEFAULT_SIZE + 1;
 let camera: Camera = { x: 0, y: 0, scale: 1 };
 let cameraAnimationId: number | null = null;
+let resizeAnimationId: number | null = null;
 let minimapStructureDirty = true;
 let minimapCollapsed = false;
 let demoStarted = false;
@@ -296,7 +297,7 @@ export function startDemo(): void {
   mapPanel.addEventListener("dragstart", (event) => event.preventDefault());
   mapPanel.addEventListener("selectstart", (event) => event.preventDefault());
   mapPanel.addEventListener("wheel", (event) => handleWheel(event), { passive: false });
-  window.addEventListener("resize", () => fitMap());
+  window.addEventListener("resize", () => scheduleViewportResize());
 
   mapPanel.addEventListener("scroll", () => updateMinimapPosition());
   minimap.addEventListener("pointerdown", (event) => event.stopPropagation());
@@ -1576,6 +1577,18 @@ function applyCamera(): void {
     `translate(${CANVAS_PADDING + camera.x} ${CANVAS_PADDING + camera.y}) scale(${camera.scale})`,
   );
   updateMinimapPosition();
+}
+
+function scheduleViewportResize(): void {
+  if (resizeAnimationId !== null) return;
+
+  resizeAnimationId = requestAnimationFrame(() => {
+    resizeAnimationId = null;
+    const bounds = mapPanel.getBoundingClientRect();
+    if (bounds.width === 0 || bounds.height === 0) return;
+
+    applyCamera();
+  });
 }
 
 function getCanvasSize(): CanvasSize {
