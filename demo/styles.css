@@ -343,7 +343,7 @@ body.is-map-dragging {
 .node-role,
 .node-label,
 .node-meta,
-.node-badge {
+.node-child-count {
   pointer-events: none;
   dominant-baseline: middle;
 }
@@ -365,16 +365,52 @@ body.is-map-dragging {
   fill: hsl(var(--muted-foreground));
 }
 
-.node-badge {
+.node-child-badge,
+.node-child-link {
+  pointer-events: none;
+}
+
+.node-child-link {
+  stroke: hsl(var(--edge));
+  stroke-linecap: round;
+  stroke-width: 1.35;
+  vector-effect: non-scaling-stroke;
+}
+
+.node-child-halo {
+  fill: hsl(var(--background));
+  stroke: hsl(var(--background));
+  stroke-width: 2;
+  vector-effect: non-scaling-stroke;
+}
+
+.node-child-dot {
+  fill: hsl(var(--background));
+  stroke: hsl(var(--edge));
+  stroke-width: 1.2;
+  vector-effect: non-scaling-stroke;
+}
+
+.node-child-badge.role-user .node-child-dot {
+  fill: hsl(var(--chart-user) / 0.14);
+  stroke: hsl(var(--chart-user));
+}
+
+.node-child-badge.role-assistant .node-child-dot {
+  fill: hsl(var(--chart-assistant) / 0.14);
+  stroke: hsl(var(--chart-assistant));
+}
+
+.node-child-count {
   font-size: 10px;
   font-weight: 800;
-  fill: hsl(var(--primary));
+  text-anchor: middle;
+  fill: hsl(var(--foreground));
 }
 
 .tree-node.is-head .node-role,
 .tree-node.is-head .node-label,
-.tree-node.is-head .node-meta,
-.tree-node.is-head .node-badge {
+.tree-node.is-head .node-meta {
   fill: hsl(var(--primary-foreground));
 }
 

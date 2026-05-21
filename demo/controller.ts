@@ -27,7 +27,7 @@ type PositionedNode = {
   depth: number;
   siblingIndex: number;
   siblingCount: number;
-  descendantCount: number;
+  hiddenChildCount: number;
 };
 
 type PositionedEdge = {
@@ -96,6 +96,8 @@ const MAX_ZOOM = 1.8;
 const DEFAULT_SIZE: DemoSize = 128;
 const DRAG_THRESHOLD = 4;
 const WHEEL_ZOOM_SPEED = 0.0015;
+const CHILD_INDICATOR_RADIUS = 10;
+const CHILD_INDICATOR_STEM = 10;
 
 const roleLabels: Record<ChatRole, string> = {
   assistant: "AI",
@@ -137,7 +139,11 @@ let selectedEdgeIds = new Set<string>();
 let selectedHeadId: string | null = null;
 let viewportGroup: SVGGElement | null = null;
 let edgeLayer: SVGGElement | null = null;
+let childLinkLayer: SVGGElement | null = null;
 let nodeLayer: SVGGElement | null = null;
+let childBadgeLayer: SVGGElement | null = null;
+let childLinkElements = new Map<string, SVGLineElement>();
+let childBadgeElements = new Map<string, SVGGElement>();
 let dragState: DragState | null = null;
 let inspectorNodeId: string | null = null;
 let suppressNextClick = false;
@@ -427,7 +433,6 @@ function getVersionLabel(siblingIndex: number, siblingCount: number): string {
 function createVisibleLayout(): LayoutModel {
   const state = tree.getState();
   const stats = tree.getStats();
-  const descendantCounts = createDescendantCounts(state);
   const nodes: PositionedNode[] = [];
   const edges: PositionedEdge[] = [];
   const nodeById = new Map<string, PositionedNode>();
@@ -445,6 +450,7 @@ function createVisibleLayout(): LayoutModel {
       const position = positions.get(sibling.nodeId);
       if (!position) continue;
 
+      const childIds = state.nodes[sibling.nodeId]?.childrenIds ?? [];
       const node: PositionedNode = {
         id: sibling.nodeId,
         parentId: sibling.parentId,
@@ -454,12 +460,17 @@ function createVisibleLayout(): LayoutModel {
         depth,
         siblingIndex: sibling.siblingIndex,
         siblingCount: sibling.siblingCount,
-        descendantCount: descendantCounts.get(sibling.nodeId) ?? 0,
+        hiddenChildCount: childIds.length,
       };
 
       nodes.push(node);
       nodeById.set(node.id, node);
     }
+  }
+
+  for (const node of nodes) {
+    const childIds = state.nodes[node.id]?.childrenIds ?? [];
+    node.hiddenChildCount = childIds.filter((childId) => !nodeById.has(childId)).length;
   }
 
   for (const child of nodes) {
@@ -534,7 +545,7 @@ function getLayoutBounds(nodes: readonly PositionedNode[]): { width: number; hei
 
   for (const node of nodes) {
     maxRight = Math.max(maxRight, node.x + NODE_WIDTH / 2);
-    maxBottom = Math.max(maxBottom, node.y + NODE_HEIGHT / 2);
+    maxBottom = Math.max(maxBottom, node.y + NODE_HEIGHT / 2 + getChildIndicatorDepth(node));
   }
 
   return {
@@ -543,36 +554,15 @@ function getLayoutBounds(nodes: readonly PositionedNode[]): { width: number; hei
   };
 }
 
-function createDescendantCounts(
-  state: BranchingTreeState<DemoMessage>,
-): ReadonlyMap<string, number> {
-  const counts = new Map<string, number>();
-
-  const countFor = (id: string): number => {
-    const existing = counts.get(id);
-    if (existing !== undefined) return existing;
-
-    const node = state.nodes[id];
-    if (!node) {
-      counts.set(id, 0);
-      return 0;
-    }
-
-    let total = 0;
-    for (const childId of node.childrenIds) {
-      total += 1 + countFor(childId);
-    }
-    counts.set(id, total);
-    return total;
-  };
-
-  countFor(state.rootId);
-  return counts;
+function getChildIndicatorDepth(node: PositionedNode): number {
+  return node.hiddenChildCount > 0 ? CHILD_INDICATOR_STEM + CHILD_INDICATOR_RADIUS * 2 : 0;
 }
 
 function resetSvgLayers(): void {
   nodeElements = new Map();
   edgeElements = new Map();
+  childLinkElements = new Map();
+  childBadgeElements = new Map();
   selectedNodeIds = new Set();
   selectedEdgeIds = new Set();
   selectedHeadId = null;
@@ -580,8 +570,10 @@ function resetSvgLayers(): void {
 
   viewportGroup = svgElement("g");
   edgeLayer = svgElement("g");
+  childLinkLayer = svgElement("g");
   nodeLayer = svgElement("g");
-  viewportGroup.append(edgeLayer, nodeLayer);
+  childBadgeLayer = svgElement("g");
+  viewportGroup.append(edgeLayer, childLinkLayer, nodeLayer, childBadgeLayer);
   svg.append(viewportGroup);
   applyCamera();
 }
@@ -589,6 +581,14 @@ function resetSvgLayers(): void {
 function syncMap(model: LayoutModel): void {
   removeMissingElements(edgeElements, (id) => model.edgeIds.has(id));
   removeMissingElements(nodeElements, (id) => model.nodeById.has(id));
+  removeMissingElements(
+    childLinkElements,
+    (id) => (model.nodeById.get(id)?.hiddenChildCount ?? 0) > 0,
+  );
+  removeMissingElements(
+    childBadgeElements,
+    (id) => (model.nodeById.get(id)?.hiddenChildCount ?? 0) > 0,
+  );
 
   for (const edge of model.edges) {
     const element = edgeElements.get(edge.id);
@@ -607,6 +607,10 @@ function syncMap(model: LayoutModel): void {
     } else {
       appendNodeElement(node);
     }
+  }
+
+  for (const node of model.nodes) {
+    syncChildIndicator(node);
   }
 
   applyCamera();
@@ -650,7 +654,7 @@ function appendNodeElement(node: PositionedNode): void {
   group.setAttribute("transform", `translate(${node.x} ${node.y})`);
   group.setAttribute("tabindex", "0");
   group.setAttribute("role", "treeitem");
-  group.setAttribute("aria-label", `${node.value.role} ${node.id} ${versionLabel}`);
+  group.setAttribute("aria-label", createNodeAriaLabel(node, versionLabel));
   group.dataset.id = node.id;
   group.addEventListener("click", (event) => {
     event.stopPropagation();
@@ -681,23 +685,10 @@ function appendNodeElement(node: PositionedNode): void {
   meta.setAttribute("class", "node-meta");
   meta.setAttribute("x", String(-NODE_WIDTH / 2 + 12));
   meta.setAttribute("y", "13");
-  meta.textContent = `${node.siblingIndex + 1}/${node.siblingCount} · ${shorten(
-    node.value.content,
-    node.descendantCount > 0 ? 22 : 30,
-  )}`;
+  meta.textContent = createNodeMetaText(node);
 
-  title.textContent = `${node.value.role}: ${node.value.content}`;
+  title.textContent = createNodeTitle(node);
   group.append(title, rect, role, label, meta);
-
-  if (node.descendantCount > 0) {
-    const badge = svgElement("text");
-    badge.setAttribute("class", "node-badge");
-    badge.setAttribute("x", String(NODE_WIDTH / 2 - 12));
-    badge.setAttribute("y", "13");
-    badge.setAttribute("text-anchor", "end");
-    badge.textContent = `+${node.descendantCount}`;
-    group.append(badge);
-  }
 
   nodeElements.set(node.id, group);
   nodeLayer.append(group);
@@ -709,10 +700,10 @@ function updateNodeElement(element: SVGGElement, node: PositionedNode): void {
 
   element.classList.remove("role-assistant", "role-user");
   element.classList.add(`role-${node.value.role}`);
-  element.setAttribute("aria-label", `${node.value.role} ${node.id} ${versionLabel}`);
+  element.setAttribute("aria-label", createNodeAriaLabel(node, versionLabel));
 
   const title = element.querySelector("title");
-  if (title) title.textContent = `${node.value.role}: ${node.value.content}`;
+  if (title) title.textContent = createNodeTitle(node);
 
   const role = element.querySelector<SVGTextElement>(".node-role");
   if (role) role.textContent = roleLabels[node.value.role];
@@ -721,28 +712,107 @@ function updateNodeElement(element: SVGGElement, node: PositionedNode): void {
   if (label) label.textContent = `${node.value.id} · ${versionLabel}`;
 
   const meta = element.querySelector<SVGTextElement>(".node-meta");
-  if (meta) {
-    meta.textContent = `${node.siblingIndex + 1}/${node.siblingCount} · ${shorten(
-      node.value.content,
-      node.descendantCount > 0 ? 22 : 30,
-    )}`;
-  }
+  if (meta) meta.textContent = createNodeMetaText(node);
+}
 
-  let badge = element.querySelector<SVGTextElement>(".node-badge");
-  if (node.descendantCount === 0) {
-    badge?.remove();
+function createNodeMetaText(node: PositionedNode): string {
+  return `${node.siblingIndex + 1}/${node.siblingCount} · ${shorten(node.value.content, 30)}`;
+}
+
+function createNodeTitle(node: PositionedNode): string {
+  const hiddenChildren = formatHiddenChildren(node.hiddenChildCount);
+  const suffix = hiddenChildren ? ` (${hiddenChildren})` : "";
+  return `${node.value.role}: ${node.value.content}${suffix}`;
+}
+
+function createNodeAriaLabel(node: PositionedNode, versionLabel: string): string {
+  const hiddenChildren = formatHiddenChildren(node.hiddenChildCount);
+  const suffix = hiddenChildren ? `, ${hiddenChildren}` : "";
+  return `${node.value.role} ${node.id} ${versionLabel}${suffix}`;
+}
+
+function formatHiddenChildren(count: number): string {
+  if (count === 0) return "";
+  return `${count} hidden ${count === 1 ? "child" : "children"}`;
+}
+
+function syncChildIndicator(node: PositionedNode): void {
+  if (node.hiddenChildCount === 0) return;
+
+  let link = childLinkElements.get(node.id);
+  if (!link) {
+    link = createChildLink();
+    childLinkElements.set(node.id, link);
+    childLinkLayer?.append(link);
+  }
+  updateChildLink(link, node);
+
+  let badge = childBadgeElements.get(node.id);
+  if (!badge) {
+    badge = createChildBadge();
+    childBadgeElements.set(node.id, badge);
+    childBadgeLayer?.append(badge);
+  }
+  updateChildBadge(badge, node);
+}
+
+function createChildLink(): SVGLineElement {
+  const line = svgElement("line");
+  line.setAttribute("class", "node-child-link");
+  return line;
+}
+
+function updateChildLink(line: SVGLineElement, node: PositionedNode): void {
+  const startY = node.y + NODE_HEIGHT / 2;
+  const endY = startY + CHILD_INDICATOR_STEM;
+
+  line.setAttribute("x1", String(node.x));
+  line.setAttribute("y1", String(startY));
+  line.setAttribute("x2", String(node.x));
+  line.setAttribute("y2", String(endY));
+}
+
+function createChildBadge(): SVGGElement {
+  const badge = svgElement("g");
+  const halo = svgElement("circle");
+  const circle = svgElement("circle");
+  const count = svgElement("text");
+
+  badge.setAttribute("class", "node-child-badge");
+
+  halo.setAttribute("class", "node-child-halo");
+  halo.setAttribute("cx", "0");
+  halo.setAttribute("cy", "0");
+  halo.setAttribute("r", String(CHILD_INDICATOR_RADIUS + 2));
+
+  circle.setAttribute("class", "node-child-dot");
+  circle.setAttribute("cx", "0");
+  circle.setAttribute("cy", "0");
+  circle.setAttribute("r", String(CHILD_INDICATOR_RADIUS));
+
+  count.setAttribute("class", "node-child-count");
+  count.setAttribute("x", "0");
+  count.setAttribute("y", "0.5");
+
+  badge.append(halo, circle, count);
+  return badge;
+}
+
+function updateChildBadge(badge: SVGGElement, node: PositionedNode): void {
+  const y = node.y + NODE_HEIGHT / 2 + CHILD_INDICATOR_STEM + CHILD_INDICATOR_RADIUS;
+
+  badge.setAttribute("class", `node-child-badge role-${node.value.role}`);
+  badge.setAttribute("transform", `translate(${node.x} ${y})`);
+
+  const count = badge.querySelector<SVGTextElement>(".node-child-count");
+  if (!count) {
     return;
   }
+  count.textContent = formatCount(node.hiddenChildCount);
+}
 
-  if (!badge) {
-    badge = svgElement("text");
-    badge.setAttribute("class", "node-badge");
-    badge.setAttribute("x", String(NODE_WIDTH / 2 - 12));
-    badge.setAttribute("y", "13");
-    badge.setAttribute("text-anchor", "end");
-    element.append(badge);
-  }
-  badge.textContent = `+${node.descendantCount}`;
+function formatCount(count: number): string {
+  return count > 99 ? "99+" : String(count);
 }
 
 function selectNode(id: string, measure = true): void {
@@ -1055,7 +1125,7 @@ function getContentBounds(): ContentBounds {
     left = Math.min(left, node.x - NODE_WIDTH / 2);
     right = Math.max(right, node.x + NODE_WIDTH / 2);
     top = Math.min(top, node.y - NODE_HEIGHT / 2);
-    bottom = Math.max(bottom, node.y + NODE_HEIGHT / 2);
+    bottom = Math.max(bottom, node.y + NODE_HEIGHT / 2 + getChildIndicatorDepth(node));
   }
 
   return {
