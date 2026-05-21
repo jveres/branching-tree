@@ -309,6 +309,9 @@ The visible map stays focused on the selected path and sibling versions, keeps
 reused nodes in stable positions when switching versions, and uses compact
 subtree badges for hidden descendants.
 
+![Branching tree demo showing a top-down conversation version map with an
+active path, sibling versions, a minimap, and selection details.](assets/demo-screenshot.png)
+
 The demo supports drag-to-pan, wheel zoom, zoom buttons, Shift-wheel pan,
 double-click zoom, fit-to-view, size presets, click-to-select nodes, keyboard
 navigation, sibling version switching, active path highlighting, a collapsible
