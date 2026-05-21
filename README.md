@@ -6,7 +6,7 @@ UIs.
 [![TypeScript](https://img.shields.io/badge/TypeScript-6.0-3178c6?logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
 [![Coverage](https://img.shields.io/badge/coverage-100%25-16a34a)](#quality-checks)
 [![Tests](https://img.shields.io/badge/tests-70%20passing-16a34a)](#quality-checks)
-[![Demo](https://img.shields.io/badge/demo-Solid%202%20beta-2c4f7c)](#demo)
+[![Demo](https://img.shields.io/badge/demo-ArrowJS-2c4f7c)](#demo)
 
 <picture>
   <source
@@ -82,7 +82,7 @@ published to npm. Clone the repository, then install dependencies with `pnpm`.
 pnpm install
 ```
 
-Run the interactive browser demo with Vite:
+Run the interactive browser demo from the self-contained `demo/` Vite app:
 
 ```sh
 pnpm run demo
@@ -383,11 +383,15 @@ const clonedValue = clonedState.nodes["copy-abc123"]?.value;
 
 ## Demo
 
-The repository includes a Solid-powered browser demo that loads a large
+The repository includes an ArrowJS-powered browser demo that loads a large
 chat-like branching tree and renders it as a top-down conversation version map.
 The visible map stays focused on the selected path and sibling versions, keeps
 reused nodes in stable positions when switching versions, and uses compact
 subtree badges for hidden descendants.
+
+The demo lives in `demo/`: `demo/index.html` is the Vite HTML entry,
+`demo/main.ts` mounts the ArrowJS shell, and the same entry imports
+`demo/styles.css`.
 
 The demo supports drag-to-pan, wheel zoom, zoom buttons, Shift-wheel pan,
 double-click zoom, fit-to-view, size presets, click-to-select nodes, keyboard
@@ -404,9 +408,15 @@ appends only newly needed nodes for the selected path window, and preserves zoom
 and pan across browser tab visibility and resize events. This keeps path
 switching responsive on trees with hundreds of messages.
 
+Build the demo production bundle with Vite when you want to inspect output size:
+
+```sh
+pnpm exec vite build demo
+```
+
 ## Quality checks
 
-The project uses TypeScript, Vitest, oxlint, and oxfmt. The `check` script runs
+The project uses TypeScript, Vitest, and Biome. The `check` script runs
 format checking, linting, type checking, and unit tests with coverage.
 
 ```sh

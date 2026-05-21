@@ -5,12 +5,10 @@
     "moduleResolution": "Bundler",
     "noEmit": true,
     "noUncheckedIndexedAccess": true,
-    "jsx": "preserve",
-    "jsxImportSource": "@solidjs/web",
     "skipLibCheck": true,
     "strict": true,
     "target": "ES2022",
     "verbatimModuleSyntax": true
   },
-  "include": ["*.ts", "demo/**/*.ts", "demo/**/*.tsx"]
+  "include": ["*.ts", "demo/**/*.ts"]
 }

@@ -1,4 +1,4 @@
-import { createStore } from "solid-js";
+import { reactive } from "@arrow-js/core";
 
 export type DemoSize = 128 | 256 | 512;
 
@@ -72,22 +72,6 @@ const initialDemoStore: DemoStore = {
   canDeleteVersions: false,
 };
 
-const [store, setStore] = createStore<DemoStore>(initialDemoStore);
-
-const demoStore = new Proxy(initialDemoStore, {
-  get(target, property: string | symbol) {
-    if (typeof property === "symbol" || !(property in target)) return undefined;
-
-    return store[property as keyof DemoStore];
-  },
-  set(target, property: string | symbol, value) {
-    if (typeof property === "symbol" || !(property in target)) return false;
-
-    setStore((draft) => {
-      Object.assign(draft, { [property]: value });
-    });
-    return true;
-  },
-});
+const demoStore = reactive(initialDemoStore);
 
 export default demoStore;

@@ -6,25 +6,22 @@
   "scripts": {
     "check": "pnpm run format:check && pnpm run lint && pnpm run typecheck && pnpm run test",
     "coverage": "vitest run --coverage",
-    "format": "oxfmt --write branching-tree.ts branching-tree.test.ts demo/App.tsx demo/actions.ts demo/controller.ts demo/main.tsx demo/store.ts vite.config.ts vitest.config.ts package.json tsconfig.json pnpm-workspace.yaml .oxfmtrc.json .oxlintrc.json README.md",
-    "format:check": "oxfmt --check branching-tree.ts branching-tree.test.ts demo/App.tsx demo/actions.ts demo/controller.ts demo/main.tsx demo/store.ts vite.config.ts vitest.config.ts package.json tsconfig.json pnpm-workspace.yaml .oxfmtrc.json .oxlintrc.json README.md",
-    "lint": "oxlint --vitest-plugin branching-tree.ts branching-tree.test.ts demo/App.tsx demo/actions.ts demo/controller.ts demo/main.tsx demo/store.ts vite.config.ts vitest.config.ts",
+    "format": "biome format --write .",
+    "format:check": "biome format .",
+    "lint": "biome lint .",
     "test": "vitest run --coverage",
     "test:unit": "vitest run",
     "typecheck": "tsc --noEmit",
-    "demo": "vite --host 127.0.0.1"
+    "demo": "vite demo --host 127.0.0.1"
   },
   "dependencies": {
-    "@solidjs/web": "2.0.0-beta.14",
-    "solid-js": "2.0.0-beta.14"
+    "@arrow-js/core": "1.0.6"
   },
   "devDependencies": {
+    "@biomejs/biome": "2.4.15",
     "@vitest/coverage-v8": "4.1.7",
-    "oxfmt": "0.51.0",
-    "oxlint": "1.66.0",
     "typescript": "6.0.3",
     "vite": "8.0.13",
-    "vite-plugin-solid": "3.0.0-next.5",
     "vitest": "4.1.7"
   },
   "packageManager": "pnpm@11.1.3"
