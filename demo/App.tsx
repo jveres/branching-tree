@@ -68,9 +68,7 @@ export default function DemoApp() {
                 title="Collapse minimap"
                 aria-label="Collapse minimap"
                 aria-expanded="true"
-              >
-                −
-              </button>
+              ></button>
             </div>
             <svg id="minimap-svg" aria-label="Whole tree overview"></svg>
           </div>

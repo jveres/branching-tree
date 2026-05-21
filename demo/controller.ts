@@ -1437,7 +1437,6 @@ function syncMinimapSelection(headId: string | null): void {
 function setMinimapCollapsed(collapsed: boolean): void {
   minimapCollapsed = collapsed;
   minimap.classList.toggle("is-collapsed", collapsed);
-  minimapToggle.textContent = collapsed ? "+" : "−";
   minimapToggle.setAttribute("aria-expanded", String(!collapsed));
   minimapToggle.setAttribute("aria-label", collapsed ? "Expand minimap" : "Collapse minimap");
   minimapToggle.setAttribute("title", collapsed ? "Expand minimap" : "Collapse minimap");

@@ -456,16 +456,39 @@ body.is-map-dragging {
 }
 
 .minimap-toggle {
-  display: grid;
-  place-items: center;
+  position: relative;
   width: 22px;
   height: 22px;
+  padding: 0;
   border: 1px solid hsl(var(--border) / 0.72);
   border-radius: calc(var(--radius) - 2px);
   background: hsl(var(--background) / 0.45);
   color: hsl(var(--foreground));
   cursor: pointer;
-  line-height: 1;
+  font-size: 0;
+  line-height: 0;
+}
+
+.minimap-toggle::before,
+.minimap-toggle::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 10px;
+  height: 2px;
+  border-radius: 999px;
+  background: currentColor;
+  transform: translate(-50%, -50%);
+}
+
+.minimap-toggle::after {
+  opacity: 0;
+  transform: translate(-50%, -50%) rotate(90deg);
+}
+
+.minimap.is-collapsed .minimap-toggle::after {
+  opacity: 1;
 }
 
 .minimap-toggle:hover {
