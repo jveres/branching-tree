@@ -1,22 +1,97 @@
 # Branching tree
 
-`BranchingTree` is a small TypeScript data structure for a rooted, ordered tree
-where every node can select one child. The selected child pointers define one
-active path through the tree, exposed as `selectedPath`.
+Branchable state for chat transcripts, message versions, and selected-path tree
+UIs.
 
-The main use case is a chat transcript where each message can have multiple
-versions. Each version is a sibling, and the active conversation is the selected
-path. The API stays generic, so the same structure works for drafts, workflows,
-edit histories, and other branchable sequences.
+[![TypeScript](https://img.shields.io/badge/TypeScript-6.0-3178c6?logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
+[![Coverage](https://img.shields.io/badge/coverage-100%25-16a34a)](#quality-checks)
+[![Tests](https://img.shields.io/badge/tests-70%20passing-16a34a)](#quality-checks)
+[![Demo](https://img.shields.io/badge/demo-Solid%202%20beta-2c4f7c)](#demo)
 
-## Install
+<picture>
+  <source
+    media="(prefers-color-scheme: dark)"
+    srcset="assets/demo-screenshot-dark.png"
+  >
+  <source
+    media="(prefers-color-scheme: light)"
+    srcset="assets/demo-screenshot-light.png"
+  >
+  <img
+    alt="Branching tree demo showing a top-down conversation version map with an active path, sibling versions, a minimap, and selection details."
+    src="assets/demo-screenshot-light.png"
+  >
+</picture>
+
+`BranchingTree` is a tiny TypeScript data structure for branchable
+conversations, versioned messages, and ordered trees with a cached active path.
+It stores every branch, keeps one selected path ready for fast transcript
+rendering, and exposes generic helpers for visualization, persistence, and
+branch editing.
+
+It was built for chat apps where every message can have multiple generated
+versions. The API stays generic, so the same model also fits drafts, workflows,
+edit histories, decision trees, and other branchable sequences.
+
+## Table of contents
+
+Use this README as both a quick start and an API reference.
+
+- [Why branching tree?](#why-branching-tree)
+- [Features](#features)
+- [Getting started](#getting-started)
+- [Basic usage](#basic-usage)
+- [Chat app patterns](#chat-app-patterns)
+- [Visualization helpers](#visualization-helpers)
+- [API reference](#api-reference)
+- [Demo](#demo)
+- [Quality checks](#quality-checks)
+
+## Why branching tree?
+
+Most chat UIs render a single linear transcript, but real chat state is often a
+tree: users edit prompts, assistants regenerate answers, and each turn can have
+multiple versions. `BranchingTree` keeps that tree explicit while making the
+currently selected conversation cheap to read.
+
+## Features
+
+Use `BranchingTree` when you need a focused state model for branchable data
+without coupling your application to a chat-specific schema.
+
+- ⚡ **O(1) active path reads:** `selectedPath` and `selectedPathEntries` are
+  cached and rebuilt only after writes.
+- 🌿 **Generic branching model:** Any value with an `id` can be stored in the
+  tree.
+- 🔁 **Version navigation:** Switch siblings by offset, index, id, or full path.
+- 💾 **Serializable state:** Persist and restore the full tree with
+  `BranchingTreeState<T>`.
+- 🗺️ **Visualization-ready helpers:** Use `getSelectedPathNeighborhood()` and
+  stable edge ids to build tree maps.
+- 🧹 **Branch editing utilities:** Trim, delete, clone, and linearize branch
+  state with focused helpers.
+- ✅ **Fully covered core:** Unit tests enforce 100% statement, branch,
+  function, and line coverage.
+
+## Getting started
 
 This repository is currently a source-only TypeScript package and isn't
-published to npm. Clone the repository, then install dependencies with `pnpm`
-before running the demo, tests, and quality checks.
+published to npm. Clone the repository, then install dependencies with `pnpm`.
 
 ```sh
 pnpm install
+```
+
+Run the interactive browser demo with Vite:
+
+```sh
+pnpm run demo
+```
+
+Run formatting, linting, type checking, and unit tests with coverage:
+
+```sh
+pnpm run check
 ```
 
 ## Basic usage
@@ -88,56 +163,7 @@ tree.append({ id: "assistant-2", role: "assistant", content: "New answer" });
 conversation and its version metadata is O(1). Tree writes rebuild those cached
 arrays.
 
-## Core concepts
-
-The tree stores all branches, but `selectedPath` returns only the currently
-selected path from the root to a leaf.
-
-- `ROOT_NODE_ID` identifies the sentinel root node.
-- `BranchingTreeNode<T>` stores a value, parent id, child ids, and selected
-  child index.
-- `BranchingTreeState<T>` is the serializable tree state.
-- `BranchingTreePathEntry<T>` describes a selected path value plus its sibling
-  metadata.
-- `BranchingTreeSiblingEntry<T>` describes a sibling and whether it's selected.
-- `selectedPath` returns the cached selected values in O(1) time.
-- `selectedPathEntries` returns cached selected values plus sibling metadata in
-  O(1) time.
-- `head` returns the last value in `selectedPath`, or `null` for an empty tree.
-
-## Reading data
-
-Read APIs either return immutable cached arrays or cloned node structures, so
-callers can't accidentally mutate the tree shape.
-
-- `selectedPath` returns the active values from root to leaf.
-- `selectedPathEntries` returns the active values with `siblingIndex`,
-  `siblingCount`, `hasPreviousSibling`, and `hasNextSibling`.
-- `head` returns the active leaf value.
-- `hasNode(id)`, `hasParent(id)`, and `hasChildren(id)` return boolean checks.
-- `getNode(id)` returns a cloned node, or `undefined` when the id doesn't
-  exist.
-- `getValue(id)` returns a node value, or `undefined` when the id doesn't exist
-  or points to an unvalued root.
-- `getSiblingPosition(id)` returns `{ current, total }` using one-based indexes.
-- `getSiblings(id)` returns cloned sibling nodes for the referenced node.
-- `getChildren(id)` returns cloned child nodes for the referenced node.
-- `getSiblingValues(id)` returns sibling values for the referenced node.
-- `getChildValues(id)` returns child values for the referenced node.
-- `getSiblingEntries(id)` returns sibling values with selection metadata.
-- `getChildEntries(id)` returns child values with selection metadata relative to
-  the referenced parent node.
-- `getPathEntriesTo(id)` returns path entries from the root to a node without
-  changing the selected path.
-- `getSelectedPathNeighborhood()` returns the active path plus each active
-  node's visible siblings as graph nodes and edges.
-- `getSelectedPathState()` returns a serializable state containing only the
-  current selected path. It preserves the selected nodes' ids and values while
-  pruning all inactive siblings and descendants.
-- `getStats()` reports node count, selected path length, depth, leaves, branch
-  points, and unreachable nodes.
-
-## Building a selected path map
+## Visualization helpers
 
 Use `getSelectedPathNeighborhood()` when you need data for a tree map like the
 demo. The helper returns only graph facts: which nodes are visible, how they
@@ -170,7 +196,61 @@ Each `BranchingTreePathNeighborhoodEdge` includes these fields:
 - `parentId` and `childId` identify the connected nodes.
 - `selected` is `true` when the edge is part of the active selected path.
 
-## Writing data
+## API reference
+
+The API is intentionally small. These sections group the read, write, selection,
+deletion, and state-helper methods by the workflow they support.
+
+### Core concepts
+
+The tree stores all branches, but `selectedPath` returns only the currently
+selected path from the root to a leaf.
+
+- `ROOT_NODE_ID` identifies the sentinel root node.
+- `BranchingTreeNode<T>` stores a value, parent id, child ids, and selected
+  child index.
+- `BranchingTreeState<T>` is the serializable tree state.
+- `BranchingTreePathEntry<T>` describes a selected path value plus its sibling
+  metadata.
+- `BranchingTreeSiblingEntry<T>` describes a sibling and whether it's selected.
+- `selectedPath` returns the cached selected values in O(1) time.
+- `selectedPathEntries` returns cached selected values plus sibling metadata in
+  O(1) time.
+- `head` returns the last value in `selectedPath`, or `null` for an empty tree.
+
+### Reading data
+
+Read APIs either return immutable cached arrays or cloned node structures, so
+callers can't accidentally mutate the tree shape.
+
+- `selectedPath` returns the active values from root to leaf.
+- `selectedPathEntries` returns the active values with `siblingIndex`,
+  `siblingCount`, `hasPreviousSibling`, and `hasNextSibling`.
+- `head` returns the active leaf value.
+- `hasNode(id)`, `hasParent(id)`, and `hasChildren(id)` return boolean checks.
+- `getNode(id)` returns a cloned node, or `undefined` when the id doesn't
+  exist.
+- `getValue(id)` returns a node value, or `undefined` when the id doesn't exist
+  or points to an unvalued root.
+- `getSiblingPosition(id)` returns `{ current, total }` using one-based indexes.
+- `getSiblings(id)` returns cloned sibling nodes for the referenced node.
+- `getChildren(id)` returns cloned child nodes for the referenced node.
+- `getSiblingValues(id)` returns sibling values for the referenced node.
+- `getChildValues(id)` returns child values for the referenced node.
+- `getSiblingEntries(id)` returns sibling values with selection metadata.
+- `getChildEntries(id)` returns child values with selection metadata relative to
+  the referenced parent node.
+- `getPathEntriesTo(id)` returns path entries from the root to a node without
+  changing the selected path.
+- `getSelectedPathNeighborhood()` returns the active path plus each active
+  node's visible siblings as graph nodes and edges.
+- `getSelectedPathState()` returns a serializable state containing only the
+  current selected path. It preserves the selected nodes' ids and values while
+  pruning all inactive siblings and descendants.
+- `getStats()` reports node count, selected path length, depth, leaves, branch
+  points, and unreachable nodes.
+
+### Writing data
 
 Write APIs keep selection explicit. By default, inserted siblings become the
 selected branch. Pass `{ select: false }` to keep the current selected sibling
@@ -189,7 +269,7 @@ selected child because there is no alternative branch yet.
 - `loadState(state)` validates and loads a serialized state object.
 - `reset(rootId)` clears the tree and creates a new root node.
 
-## Selecting branches
+### Selecting branches
 
 Selection APIs change which sibling is active at a branch point. In a chat app,
 these methods switch between message versions.
@@ -201,7 +281,7 @@ these methods switch between message versions.
   the ancestor path needed to reach it.
 - `selectPathTo(id)` selects every parent-to-child edge needed to reach a node.
 
-## Deleting branches
+### Deleting branches
 
 Deletion APIs remove subtrees and then rebuild the cached selected path. Methods
 return `false` when there is nothing to delete.
@@ -217,13 +297,13 @@ return `false` when there is nothing to delete.
 - `deleteSiblings(id, { keepTarget: true })` removes every sibling except the
   referenced node.
 
-## State helpers
+### State helpers
 
 Static helpers create ids and serializable state without mutating an existing
 tree instance. They are useful when importing linear data, duplicating a tree,
 or generating ids with the same convention as the library.
 
-### `createNodeId(prefix)`
+#### `createNodeId(prefix)`
 
 `createNodeId` returns a string id with a prefix and a random suffix. The
 default prefix is `node`, so `BranchingTree.createNodeId()` returns ids shaped
@@ -233,7 +313,7 @@ like `node-abc123`.
 const id = BranchingTree.createNodeId("message");
 ```
 
-### `createEdgeId(parentId, childId)`
+#### `createEdgeId(parentId, childId)`
 
 `createEdgeId` returns a stable string id for a parent-to-child edge. Use it
 when you need a key for rendered edge elements.
@@ -243,7 +323,7 @@ const edgeId = BranchingTree.createEdgeId("message-1", "message-2");
 // edgeId === "message-1->message-2"
 ```
 
-### `createLinearState(values, options)`
+#### `createLinearState(values, options)`
 
 `createLinearState` converts an array into a single selected path under a root
 node. Every input value receives a new id, and the return type is
@@ -273,7 +353,7 @@ The optional `options` object supports these fields:
 - `idPrefix` is passed to `createNodeId` when `idFactory` isn't provided.
 - `rootId` sets the root node id. The default is `ROOT_NODE_ID`.
 
-### `cloneStateWithNewIds(state, options)`
+#### `cloneStateWithNewIds(state, options)`
 
 `cloneStateWithNewIds` copies an existing tree state while preserving its
 structure, selected child indexes, and values. It assigns a new id to every
@@ -309,9 +389,6 @@ The visible map stays focused on the selected path and sibling versions, keeps
 reused nodes in stable positions when switching versions, and uses compact
 subtree badges for hidden descendants.
 
-![Branching tree demo showing a top-down conversation version map with an
-active path, sibling versions, a minimap, and selection details.](assets/demo-screenshot.png)
-
 The demo supports drag-to-pan, wheel zoom, zoom buttons, Shift-wheel pan,
 double-click zoom, fit-to-view, size presets, click-to-select nodes, keyboard
 navigation, sibling version switching, active path highlighting, a collapsible
@@ -320,10 +397,6 @@ deleting from a selected message, and pruning message versions with or without
 keeping the selected version. It also includes a create-linear action backed by
 `getSelectedPathState()` and uses `getSelectedPathNeighborhood()` for map
 rendering. New demo messages use `BranchingTree.createNodeId`.
-
-```sh
-pnpm run demo
-```
 
 Open the local Vite URL printed by the command. The demo remembers node
 coordinates across version switches, reuses existing SVG elements where possible,
