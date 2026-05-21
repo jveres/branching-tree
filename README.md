@@ -11,8 +11,9 @@ edit histories, and other branchable sequences.
 
 ## Install
 
-This repository is currently a local TypeScript package. Install dependencies
-with `pnpm` before running tests and quality checks.
+This repository is currently a source-only TypeScript package and isn't
+published to npm. Clone the repository, then install dependencies with `pnpm`
+before running the demo, tests, and quality checks.
 
 ```sh
 pnpm install
@@ -302,20 +303,20 @@ const clonedValue = clonedState.nodes["copy-abc123"]?.value;
 
 ## Demo
 
-The repository includes a browser demo that loads a large chat-like branching
-tree and renders it as a top-down conversation version map. The visible map stays
-focused on the selected path and sibling versions, keeps reused nodes in stable
-positions when switching versions, and uses compact subtree badges for hidden
-descendants.
+The repository includes a Solid-powered browser demo that loads a large
+chat-like branching tree and renders it as a top-down conversation version map.
+The visible map stays focused on the selected path and sibling versions, keeps
+reused nodes in stable positions when switching versions, and uses compact
+subtree badges for hidden descendants.
 
 The demo supports drag-to-pan, wheel zoom, zoom buttons, Shift-wheel pan,
-double-click zoom, fit-to-view, size presets, click-to-select nodes, sibling
-version switching, active path highlighting, adding versions and child messages,
-truncating after a message, deleting from a selected message, and pruning
-message versions with or without keeping the selected version. It also includes
-a create-linear action backed by `getSelectedPathState()` and uses
-`getSelectedPathNeighborhood()` for map rendering. New demo messages use
-`BranchingTree.createNodeId`.
+double-click zoom, fit-to-view, size presets, click-to-select nodes, keyboard
+navigation, sibling version switching, active path highlighting, a collapsible
+minimap, adding versions and child messages, truncating after a message,
+deleting from a selected message, and pruning message versions with or without
+keeping the selected version. It also includes a create-linear action backed by
+`getSelectedPathState()` and uses `getSelectedPathNeighborhood()` for map
+rendering. New demo messages use `BranchingTree.createNodeId`.
 
 ```sh
 pnpm run demo
@@ -323,7 +324,8 @@ pnpm run demo
 
 Open the local Vite URL printed by the command. The demo remembers node
 coordinates across version switches, reuses existing SVG elements where possible,
-and appends only newly needed nodes for the selected path window. This keeps path
+appends only newly needed nodes for the selected path window, and preserves zoom
+and pan across browser tab visibility and resize events. This keeps path
 switching responsive on trees with hundreds of messages.
 
 ## Quality checks
