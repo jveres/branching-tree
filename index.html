@@ -7,77 +7,7 @@
     <link rel="stylesheet" href="/demo/styles.css" />
   </head>
   <body>
-    <main class="app-shell">
-      <header class="topbar">
-        <div class="brand-block">
-          <h1>Branching tree</h1>
-          <p id="tree-summary">Loading map</p>
-        </div>
-        <div class="toolbar" aria-label="Map controls">
-          <div class="segmented" aria-label="Tree size">
-            <button type="button" class="segment-button is-active" data-size="128">128</button>
-            <button type="button" class="segment-button" data-size="256">256</button>
-            <button type="button" class="segment-button" data-size="512">512</button>
-          </div>
-          <button type="button" class="icon-button" id="fit-button" title="Fit map" aria-label="Fit map">⌖</button>
-          <button type="button" class="icon-button" id="zoom-out-button" title="Zoom out" aria-label="Zoom out">−</button>
-          <button type="button" class="icon-button" id="zoom-in-button" title="Zoom in" aria-label="Zoom in">+</button>
-        </div>
-      </header>
-
-      <section class="metrics" aria-label="Tree metrics">
-        <div class="metric"><strong id="node-count">0</strong><span>messages</span></div>
-        <div class="metric"><strong id="edge-count">0</strong><span>links</span></div>
-        <div class="metric"><strong id="path-count">0</strong><span>active</span></div>
-        <div class="metric"><strong id="render-time">0 ms</strong><span>layout</span></div>
-        <div class="metric"><strong id="select-time">0 ms</strong><span>action</span></div>
-      </section>
-
-      <section class="workspace">
-        <section class="map-panel" id="map-panel" aria-label="Conversation version map">
-          <svg id="tree-map" role="tree" aria-label="Conversation version map"></svg>
-        </section>
-
-        <aside class="inspector" aria-label="Selection details">
-          <section class="inspect-section">
-            <h2 id="message-title">Message</h2>
-            <dl class="message-meta">
-              <div><dt>Role</dt><dd id="message-role">-</dd></div>
-              <div><dt>Version</dt><dd id="message-version">-</dd></div>
-              <div><dt>Tokens</dt><dd id="message-tokens">-</dd></div>
-            </dl>
-            <p id="message-content" class="message-content"></p>
-          </section>
-
-          <section class="inspect-section">
-            <h2>Versions</h2>
-            <div id="sibling-list" class="sibling-list"></div>
-          </section>
-
-          <section class="inspect-section">
-            <h2>Actions</h2>
-            <div class="action-grid" aria-label="Branch actions">
-              <button type="button" class="action-button" id="previous-version-button">Previous</button>
-              <button type="button" class="action-button" id="next-version-button">Next</button>
-              <button type="button" class="action-button" id="add-version-button">Add version</button>
-              <button type="button" class="action-button" id="add-child-button">Add child</button>
-              <button type="button" class="action-button" id="truncate-button">Truncate after</button>
-              <button type="button" class="action-button" id="keep-version-button">Keep only</button>
-              <button type="button" class="action-button is-danger" id="delete-branch-button">Delete</button>
-              <button type="button" class="action-button is-danger" id="delete-siblings-button">Delete versions</button>
-              <button type="button" class="action-button" id="load-linear-button">Load linear</button>
-              <button type="button" class="action-button" id="reset-tree-button">Reset sample</button>
-            </div>
-          </section>
-
-          <section class="inspect-section path-section">
-            <h2>Active path</h2>
-            <ol id="path-list" class="path-list"></ol>
-          </section>
-        </aside>
-      </section>
-    </main>
-
-    <script type="module" src="/demo/main.ts"></script>
+    <div id="app"></div>
+    <script type="module" src="/demo/main.tsx"></script>
   </body>
 </html>

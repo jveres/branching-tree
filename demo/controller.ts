@@ -6,8 +6,10 @@ import {
   type BranchingTreeState,
   type Identified,
 } from "../branching-tree";
+import { setDemoActions } from "./actions";
+import demoStore, { type DemoSize } from "./store";
 
-type ChatRole = "system" | "user" | "assistant";
+type ChatRole = "user" | "assistant";
 
 type DemoMessage = Identified & {
   role: ChatRole;
@@ -91,13 +93,12 @@ const CANVAS_PADDING = 96;
 const ROOT_X = MAP_PADDING + NODE_WIDTH / 2 + COLUMN_WIDTH * 3;
 const MIN_ZOOM = 0.55;
 const MAX_ZOOM = 1.8;
-const DEFAULT_SIZE = 128;
+const DEFAULT_SIZE: DemoSize = 128;
 const DRAG_THRESHOLD = 4;
 const WHEEL_ZOOM_SPEED = 0.0015;
 
 const roleLabels: Record<ChatRole, string> = {
   assistant: "AI",
-  system: "SYS",
   user: "YOU",
 };
 
@@ -123,35 +124,8 @@ const answers = [
   "Use sibling counts and indexes to drive version controls at each message depth.",
 ];
 
-const svg = mustElement<SVGSVGElement>("tree-map");
-const mapPanel = mustElement<HTMLElement>("map-panel");
-const summary = mustElement<HTMLElement>("tree-summary");
-const nodeCount = mustElement<HTMLElement>("node-count");
-const edgeCount = mustElement<HTMLElement>("edge-count");
-const pathCount = mustElement<HTMLElement>("path-count");
-const renderTime = mustElement<HTMLElement>("render-time");
-const selectTime = mustElement<HTMLElement>("select-time");
-const messageTitle = mustElement<HTMLElement>("message-title");
-const messageRole = mustElement<HTMLElement>("message-role");
-const messageVersion = mustElement<HTMLElement>("message-version");
-const messageTokens = mustElement<HTMLElement>("message-tokens");
-const messageContent = mustElement<HTMLElement>("message-content");
-const siblingList = mustElement<HTMLElement>("sibling-list");
-const pathList = mustElement<HTMLOListElement>("path-list");
-const fitButton = mustElement<HTMLButtonElement>("fit-button");
-const zoomInButton = mustElement<HTMLButtonElement>("zoom-in-button");
-const zoomOutButton = mustElement<HTMLButtonElement>("zoom-out-button");
-const previousVersionButton = mustElement<HTMLButtonElement>("previous-version-button");
-const nextVersionButton = mustElement<HTMLButtonElement>("next-version-button");
-const addVersionButton = mustElement<HTMLButtonElement>("add-version-button");
-const addChildButton = mustElement<HTMLButtonElement>("add-child-button");
-const truncateButton = mustElement<HTMLButtonElement>("truncate-button");
-const keepVersionButton = mustElement<HTMLButtonElement>("keep-version-button");
-const deleteBranchButton = mustElement<HTMLButtonElement>("delete-branch-button");
-const deleteSiblingsButton = mustElement<HTMLButtonElement>("delete-siblings-button");
-const loadLinearButton = mustElement<HTMLButtonElement>("load-linear-button");
-const resetTreeButton = mustElement<HTMLButtonElement>("reset-tree-button");
-const sizeButtons = Array.from(document.querySelectorAll<HTMLButtonElement>("[data-size]"));
+let svg: SVGSVGElement;
+let mapPanel: HTMLElement;
 
 let tree = new BranchingTree<DemoMessage>();
 let layout: LayoutModel = createEmptyLayout();
@@ -167,108 +141,125 @@ let nodeLayer: SVGGElement | null = null;
 let dragState: DragState | null = null;
 let inspectorNodeId: string | null = null;
 let suppressNextClick = false;
-let currentSize = DEFAULT_SIZE;
+let currentSize: DemoSize = DEFAULT_SIZE;
 let nextGeneratedSeed = DEFAULT_SIZE + 1;
 let camera: Camera = { x: 0, y: 0, scale: 1 };
+let demoStarted = false;
 
-loadTree(DEFAULT_SIZE);
+export function startDemo(): void {
+  if (demoStarted) return;
+  demoStarted = true;
 
-fitButton.addEventListener("click", () => fitMap());
-zoomInButton.addEventListener("click", () => zoomBy(1.18));
-zoomOutButton.addEventListener("click", () => zoomBy(0.85));
-previousVersionButton.addEventListener("click", () => selectAdjacentSibling(-1));
-nextVersionButton.addEventListener("click", () => selectAdjacentSibling(1));
-addVersionButton.addEventListener("click", () => addVersion());
-addChildButton.addEventListener("click", () => addChild());
-truncateButton.addEventListener("click", () => truncateAfterSelection());
-keepVersionButton.addEventListener("click", () => keepOnlyVersion());
-deleteBranchButton.addEventListener("click", () => deleteBranch());
-deleteSiblingsButton.addEventListener("click", () => deleteSiblingGroup());
-loadLinearButton.addEventListener("click", () => loadLinearTranscript());
-resetTreeButton.addEventListener("click", () => {
-  loadTree(currentSize);
-  setActiveSizeButton(currentSize);
-});
+  svg = mustElement<SVGSVGElement>("tree-map");
+  mapPanel = mustElement<HTMLElement>("map-panel");
 
-for (const button of sizeButtons) {
-  button.addEventListener("click", () => {
-    const size = Number(button.dataset.size ?? DEFAULT_SIZE);
-    loadTree(size);
-    setActiveSizeButton(size);
+  setDemoActions({
+    addChild,
+    addVersion,
+    deleteBranch,
+    deleteSiblingGroup,
+    fitMap,
+    keepOnlyVersion,
+    loadLinearTranscript,
+    loadSize(size) {
+      loadTree(size);
+      setActiveSizeButton(size);
+    },
+    nextVersion() {
+      selectAdjacentSibling(1);
+    },
+    previousVersion() {
+      selectAdjacentSibling(-1);
+    },
+    resetTree() {
+      loadTree(currentSize);
+      setActiveSizeButton(currentSize);
+    },
+    selectNode,
+    selectSiblingVersion,
+    truncateAfterSelection,
+    zoomIn() {
+      zoomBy(1.18);
+    },
+    zoomOut() {
+      zoomBy(0.85);
+    },
   });
+
+  mapPanel.addEventListener("click", (event) => {
+    if (suppressNextClick) {
+      suppressNextClick = false;
+      return;
+    }
+
+    const node = getNodeElement(event.target);
+    const id = node?.dataset.id;
+    if (id) selectNode(id);
+  });
+
+  svg.addEventListener("keydown", (event) => {
+    if (event.key !== "Enter" && event.key !== " ") return;
+
+    const node = getNodeElement(event.target);
+    const id = node?.dataset.id;
+    if (!id) return;
+
+    event.preventDefault();
+    selectNode(id);
+  });
+
+  mapPanel.addEventListener("pointerdown", (event) => {
+    if (event.button !== 0) return;
+
+    event.preventDefault();
+    document.body.classList.add("is-map-dragging");
+
+    const node = getNodeElement(event.target);
+    dragState = {
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startY: event.clientY,
+      startCameraX: camera.x,
+      startCameraY: camera.y,
+      nodeId: node?.dataset.id ?? null,
+      moved: false,
+    };
+    mapPanel.setPointerCapture(event.pointerId);
+  });
+
+  mapPanel.addEventListener("pointermove", (event) => {
+    if (!dragState || dragState.pointerId !== event.pointerId) return;
+
+    const deltaX = event.clientX - dragState.startX;
+    const deltaY = event.clientY - dragState.startY;
+    if (!dragState.moved && Math.hypot(deltaX, deltaY) >= DRAG_THRESHOLD) {
+      dragState.moved = true;
+      mapPanel.classList.add("is-dragging");
+    }
+
+    if (!dragState.moved) return;
+
+    event.preventDefault();
+    camera = {
+      ...camera,
+      x: dragState.startCameraX + deltaX,
+      y: dragState.startCameraY + deltaY,
+    };
+    applyCamera();
+  });
+
+  mapPanel.addEventListener("pointerup", (event) => finishDrag(event));
+  mapPanel.addEventListener("pointercancel", (event) => finishDrag(event));
+  mapPanel.addEventListener("dblclick", (event) => handleDoubleClickZoom(event));
+  mapPanel.addEventListener("dragstart", (event) => event.preventDefault());
+  mapPanel.addEventListener("selectstart", (event) => event.preventDefault());
+  mapPanel.addEventListener("wheel", (event) => handleWheel(event), { passive: false });
+  window.addEventListener("resize", () => fitMap());
+
+  loadTree(DEFAULT_SIZE);
 }
 
-mapPanel.addEventListener("click", (event) => {
-  if (suppressNextClick) {
-    suppressNextClick = false;
-    return;
-  }
-
-  const node = getNodeElement(event.target);
-  const id = node?.dataset.id;
-  if (id) selectNode(id);
-});
-
-svg.addEventListener("keydown", (event) => {
-  if (event.key !== "Enter" && event.key !== " ") return;
-
-  const node = getNodeElement(event.target);
-  const id = node?.dataset.id;
-  if (!id) return;
-
-  event.preventDefault();
-  selectNode(id);
-});
-
-mapPanel.addEventListener("pointerdown", (event) => {
-  if (event.button !== 0) return;
-
-  event.preventDefault();
-  document.body.classList.add("is-map-dragging");
-
-  const node = getNodeElement(event.target);
-  dragState = {
-    pointerId: event.pointerId,
-    startX: event.clientX,
-    startY: event.clientY,
-    startCameraX: camera.x,
-    startCameraY: camera.y,
-    nodeId: node?.dataset.id ?? null,
-    moved: false,
-  };
-  mapPanel.setPointerCapture(event.pointerId);
-});
-
-mapPanel.addEventListener("pointermove", (event) => {
-  if (!dragState || dragState.pointerId !== event.pointerId) return;
-
-  const deltaX = event.clientX - dragState.startX;
-  const deltaY = event.clientY - dragState.startY;
-  if (!dragState.moved && Math.hypot(deltaX, deltaY) >= DRAG_THRESHOLD) {
-    dragState.moved = true;
-    mapPanel.classList.add("is-dragging");
-  }
-
-  if (!dragState.moved) return;
-
-  event.preventDefault();
-  camera = {
-    ...camera,
-    x: dragState.startCameraX + deltaX,
-    y: dragState.startCameraY + deltaY,
-  };
-  applyCamera();
-});
-
-mapPanel.addEventListener("pointerup", (event) => finishDrag(event));
-mapPanel.addEventListener("pointercancel", (event) => finishDrag(event));
-mapPanel.addEventListener("dblclick", (event) => handleDoubleClickZoom(event));
-mapPanel.addEventListener("dragstart", (event) => event.preventDefault());
-mapPanel.addEventListener("selectstart", (event) => event.preventDefault());
-mapPanel.addEventListener("wheel", (event) => handleWheel(event), { passive: false });
-window.addEventListener("resize", () => fitMap());
-
-function loadTree(size: number): void {
+function loadTree(size: DemoSize): void {
   currentSize = size;
   loadState(createDemoState(size), size + 1);
 }
@@ -303,13 +294,12 @@ function loadState(state: BranchingTreeState<DemoMessage>, nextSeed: number): vo
     renderEmptyInspector();
   }
 
-  renderTime.textContent = formatMs(performance.now() - started);
+  demoStore.renderTime = formatMs(performance.now() - started);
   updateMetrics();
 }
 
 function createLinearTranscript(): DemoMessage[] {
   return [
-    createImportedMessage("source-system", "system", "You are a concise product assistant.", 0, 24),
     createImportedMessage("source-user-1", "user", "Summarize the current workspace state.", 0, 38),
     createImportedMessage(
       "source-assistant-1",
@@ -427,8 +417,7 @@ function getChildCount(depth: number, seed: number): number {
 }
 
 function getRole(depth: number): ChatRole {
-  if (depth === 0) return "system";
-  return depth % 2 === 0 ? "assistant" : "user";
+  return depth % 2 === 0 ? "user" : "assistant";
 }
 
 function getVersionLabel(siblingIndex: number, siblingCount: number): string {
@@ -614,6 +603,7 @@ function syncMap(model: LayoutModel): void {
     const element = nodeElements.get(node.id);
     if (element) {
       element.setAttribute("transform", `translate(${node.x} ${node.y})`);
+      updateNodeElement(element, node);
     } else {
       appendNodeElement(node);
     }
@@ -714,6 +704,47 @@ function appendNodeElement(node: PositionedNode): void {
   window.setTimeout(() => group.classList.remove("is-new"), 220);
 }
 
+function updateNodeElement(element: SVGGElement, node: PositionedNode): void {
+  const versionLabel = getVersionLabel(node.siblingIndex, node.siblingCount);
+
+  element.classList.remove("role-assistant", "role-user");
+  element.classList.add(`role-${node.value.role}`);
+  element.setAttribute("aria-label", `${node.value.role} ${node.id} ${versionLabel}`);
+
+  const title = element.querySelector("title");
+  if (title) title.textContent = `${node.value.role}: ${node.value.content}`;
+
+  const role = element.querySelector<SVGTextElement>(".node-role");
+  if (role) role.textContent = roleLabels[node.value.role];
+
+  const label = element.querySelector<SVGTextElement>(".node-label");
+  if (label) label.textContent = `${node.value.id} · ${versionLabel}`;
+
+  const meta = element.querySelector<SVGTextElement>(".node-meta");
+  if (meta) {
+    meta.textContent = `${node.siblingIndex + 1}/${node.siblingCount} · ${shorten(
+      node.value.content,
+      node.descendantCount > 0 ? 22 : 30,
+    )}`;
+  }
+
+  let badge = element.querySelector<SVGTextElement>(".node-badge");
+  if (node.descendantCount === 0) {
+    badge?.remove();
+    return;
+  }
+
+  if (!badge) {
+    badge = svgElement("text");
+    badge.setAttribute("class", "node-badge");
+    badge.setAttribute("x", String(NODE_WIDTH / 2 - 12));
+    badge.setAttribute("y", "13");
+    badge.setAttribute("text-anchor", "end");
+    element.append(badge);
+  }
+  badge.textContent = `+${node.descendantCount}`;
+}
+
 function selectNode(id: string, measure = true): void {
   if (!tree.hasNode(id)) return;
 
@@ -721,7 +752,7 @@ function selectNode(id: string, measure = true): void {
   tree.selectPathTo(id);
   refreshView(id);
 
-  if (measure) selectTime.textContent = formatMs(performance.now() - started);
+  if (measure) demoStore.selectTime = formatMs(performance.now() - started);
 }
 
 function refreshView(preferredInspectorId: string | null): void {
@@ -752,7 +783,7 @@ function selectSiblingVersion(id: string): void {
   if (!tree.selectSiblingById(id)) return;
 
   refreshView(id);
-  selectTime.textContent = formatMs(performance.now() - started);
+  demoStore.selectTime = formatMs(performance.now() - started);
 }
 
 function selectAdjacentSibling(offset: number): void {
@@ -769,7 +800,7 @@ function selectAdjacentSibling(offset: number): void {
   if (!tree.selectSibling(inspectorNodeId, offset)) return;
 
   refreshView(next.nodeId);
-  selectTime.textContent = formatMs(performance.now() - started);
+  demoStore.selectTime = formatMs(performance.now() - started);
 }
 
 function addVersion(): void {
@@ -791,7 +822,7 @@ function addVersion(): void {
     turn: reference.value.turn,
   });
   refreshView(id);
-  selectTime.textContent = formatMs(performance.now() - started);
+  demoStore.selectTime = formatMs(performance.now() - started);
 }
 
 function addChild(): void {
@@ -811,7 +842,7 @@ function addChild(): void {
     createGeneratedMessage(id, depth, siblingIndex, siblingIndex + 1),
   );
   refreshView(id);
-  selectTime.textContent = formatMs(performance.now() - started);
+  demoStore.selectTime = formatMs(performance.now() - started);
 }
 
 function truncateAfterSelection(): void {
@@ -847,7 +878,7 @@ function mutateTree(mutator: () => boolean, preferredInspectorId: string | null)
   if (!mutator()) return;
 
   refreshView(preferredInspectorId);
-  selectTime.textContent = formatMs(performance.now() - started);
+  demoStore.selectTime = formatMs(performance.now() - started);
 }
 
 function createGeneratedId(): string {
@@ -909,11 +940,11 @@ function renderInspector(id: string): void {
 
   inspectorNodeId = id;
   const siblingPosition = tree.getSiblingPosition(id);
-  messageTitle.textContent = `${node.value.id} · turn ${node.value.turn}`;
-  messageRole.textContent = node.value.role;
-  messageVersion.textContent = `${siblingPosition.current}/${siblingPosition.total}`;
-  messageTokens.textContent = String(node.value.tokenCount);
-  messageContent.textContent = node.value.content;
+  demoStore.messageTitle = `${node.value.id} · turn ${node.value.turn}`;
+  demoStore.messageRole = node.value.role;
+  demoStore.messageVersion = `${siblingPosition.current}/${siblingPosition.total}`;
+  demoStore.messageTokens = String(node.value.tokenCount);
+  demoStore.messageContent = node.value.content;
 
   renderSiblingList(id);
   renderPathList();
@@ -922,73 +953,34 @@ function renderInspector(id: string): void {
 
 function renderEmptyInspector(): void {
   inspectorNodeId = null;
-  messageTitle.textContent = "No message";
-  messageRole.textContent = "-";
-  messageVersion.textContent = "-";
-  messageTokens.textContent = "-";
-  messageContent.textContent = "";
-  siblingList.textContent = "";
-  pathList.textContent = "";
+  demoStore.messageTitle = "No message";
+  demoStore.messageRole = "-";
+  demoStore.messageVersion = "-";
+  demoStore.messageTokens = "-";
+  demoStore.messageContent = "";
+  demoStore.siblings = [];
+  demoStore.pathEntries = [];
   updateActionButtons(null);
 }
 
 function renderSiblingList(id: string): void {
-  siblingList.textContent = "";
-  const siblings = tree.getSiblingEntries(id);
-  if (siblings.length === 0) {
-    const empty = document.createElement("p");
-    empty.className = "empty-state";
-    empty.textContent = "No versions";
-    siblingList.append(empty);
-    return;
-  }
-
-  const fragment = document.createDocumentFragment();
-  for (const entry of siblings) {
-    const button = document.createElement("button");
-    const index = document.createElement("span");
-    const label = document.createElement("span");
-    const role = document.createElement("span");
-
-    button.type = "button";
-    button.className = `version-button${entry.selected ? " is-selected" : ""}`;
-    button.addEventListener("click", () => selectSiblingVersion(entry.nodeId));
-
-    index.className = "version-index";
-    index.textContent = String(entry.siblingIndex + 1);
-    label.className = "version-label";
-    label.textContent = `${entry.value.id} ${getVersionLabel(entry.siblingIndex, entry.siblingCount)}`;
-    role.className = "version-role";
-    role.textContent = entry.value.role;
-
-    button.append(index, label, role);
-    fragment.append(button);
-  }
-  siblingList.append(fragment);
+  demoStore.siblings = tree.getSiblingEntries(id).map((entry) => ({
+    index: String(entry.siblingIndex + 1),
+    label: `${entry.value.id} ${getVersionLabel(entry.siblingIndex, entry.siblingCount)}`,
+    nodeId: entry.nodeId,
+    role: entry.value.role,
+    selected: entry.selected,
+  }));
 }
 
 function renderPathList(): void {
-  pathList.textContent = "";
   const entries = tree.selectedPathEntries;
   const headId = tree.head?.id;
-
-  const fragment = document.createDocumentFragment();
-  for (const entry of entries) {
-    const item = document.createElement("li");
-    const button = document.createElement("button");
-    button.type = "button";
-    button.className = `path-button${entry.value.id === headId ? " is-head" : ""}`;
-    button.addEventListener("click", () => selectNode(entry.nodeId));
-
-    const label = document.createElement("span");
-    label.className = "path-label";
-    label.textContent = `${entry.value.id} · ${entry.value.role} · ${entry.siblingIndex + 1}/${entry.siblingCount}`;
-
-    button.append(label);
-    item.append(button);
-    fragment.append(item);
-  }
-  pathList.append(fragment);
+  demoStore.pathEntries = entries.map((entry) => ({
+    head: entry.value.id === headId,
+    label: `${entry.value.id} · ${entry.value.role} · ${entry.siblingIndex + 1}/${entry.siblingCount}`,
+    nodeId: entry.nodeId,
+  }));
 }
 
 function updateActionButtons(id: string | null): void {
@@ -998,29 +990,25 @@ function updateActionButtons(id: string | null): void {
   const hasSelection = id !== null;
   const hasSiblings = (entry?.siblingCount ?? 0) > 1;
 
-  previousVersionButton.disabled = !entry?.hasPreviousSibling;
-  nextVersionButton.disabled = !entry?.hasNextSibling;
-  addVersionButton.disabled = !hasSelection;
-  addChildButton.disabled = !hasSelection;
-  truncateButton.disabled = !id || !tree.hasChildren(id);
-  keepVersionButton.disabled = !hasSelection || !hasSiblings;
-  deleteBranchButton.disabled = !hasSelection;
-  deleteSiblingsButton.disabled = !hasSelection;
-  loadLinearButton.disabled = false;
-  resetTreeButton.disabled = false;
+  demoStore.canPreviousVersion = entry?.hasPreviousSibling === true;
+  demoStore.canNextVersion = entry?.hasNextSibling === true;
+  demoStore.canAddVersion = hasSelection;
+  demoStore.canAddChild = hasSelection;
+  demoStore.canTruncate = id !== null && tree.hasChildren(id);
+  demoStore.canKeepOnlyVersion = hasSelection && hasSiblings;
+  demoStore.canDelete = hasSelection;
+  demoStore.canDeleteVersions = hasSelection;
 }
 
-function setActiveSizeButton(size: number | null): void {
-  for (const button of sizeButtons) {
-    button.classList.toggle("is-active", Number(button.dataset.size) === size);
-  }
+function setActiveSizeButton(size: DemoSize | null): void {
+  demoStore.currentSize = size;
 }
 
 function updateMetrics(): void {
-  nodeCount.textContent = String(layout.messageCount);
-  edgeCount.textContent = String(layout.linkCount);
-  pathCount.textContent = String(tree.selectedPath.length);
-  summary.textContent = `${layout.messageCount} messages · ${layout.branchCount} branch points · depth ${layout.maxDepth}`;
+  demoStore.nodeCount = String(layout.messageCount);
+  demoStore.edgeCount = String(layout.linkCount);
+  demoStore.pathCount = String(tree.selectedPath.length);
+  demoStore.summary = `${layout.messageCount} messages · ${layout.branchCount} branch points · depth ${layout.maxDepth}`;
 }
 
 function fitMap(): void {
