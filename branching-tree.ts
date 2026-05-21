@@ -43,6 +43,27 @@ export type BranchingTreeSiblingEntry<T extends Identified> = BranchingTreePathE
   selected: boolean;
 };
 
+export type BranchingTreeChildEntry<T extends Identified> = BranchingTreeSiblingEntry<T>;
+
+export type BranchingTreePathNeighborhoodNode<T extends Identified> =
+  BranchingTreeSiblingEntry<T> & {
+    depth: number;
+    childCount: number;
+    hiddenChildCount: number;
+  };
+
+export type BranchingTreePathNeighborhoodEdge = {
+  id: string;
+  parentId: string;
+  childId: string;
+  selected: boolean;
+};
+
+export type BranchingTreePathNeighborhood<T extends Identified> = {
+  nodes: readonly BranchingTreePathNeighborhoodNode<T>[];
+  edges: readonly BranchingTreePathNeighborhoodEdge[];
+};
+
 export type Reidentified<T extends Identified> = Omit<T, "id"> & {
   id: string;
 };
@@ -136,6 +157,36 @@ export class BranchingTree<T extends Identified> {
     };
   }
 
+  public getNode(id: string): BranchingTreeNode<T> | undefined {
+    const node = this.nodes[id];
+    return node ? cloneNode(node) : undefined;
+  }
+
+  public getValue(id: string): T | undefined {
+    return this.nodes[id]?.value;
+  }
+
+  public getSelectedPathState(): BranchingTreeState<T> {
+    const nodes: Record<string, BranchingTreeNode<T>> = {
+      [this.rootId]: createRootNode(this.rootId),
+    };
+
+    let parentId = this.rootId;
+    for (const entry of this.selectedPathEntriesCache) {
+      nodes[parentId]!.childrenIds = [entry.nodeId];
+      nodes[entry.nodeId] = {
+        id: entry.nodeId,
+        value: entry.value,
+        parentId,
+        childrenIds: [],
+        selectedChildIndex: 0,
+      };
+      parentId = entry.nodeId;
+    }
+
+    return { rootId: this.rootId, nodes };
+  }
+
   public loadState(state: BranchingTreeState<T>): void {
     const rootId = state.rootId || ROOT_NODE_ID;
     const nodes = cloneNodes(state.nodes);
@@ -192,11 +243,30 @@ export class BranchingTree<T extends Identified> {
       .map(cloneNode);
   }
 
+  public getChildren(id: string): BranchingTreeNode<T>[] {
+    const node = this.nodes[id];
+    if (!node) return [];
+
+    return node.childrenIds
+      .map((childId) => this.nodes[childId])
+      .filter(isDefined)
+      .map(cloneNode);
+  }
+
   public getSiblingValues(id: string): readonly T[] {
     const parent = this.getParent(id);
     if (!parent) return [];
 
     return Object.freeze(parent.childrenIds.map((childId) => this.nodes[childId]!.value!));
+  }
+
+  public getChildValues(id: string): readonly T[] {
+    const node = this.nodes[id];
+    if (!node) return [];
+
+    return Object.freeze(
+      node.childrenIds.map((childId) => this.nodes[childId]?.value).filter(isDefined),
+    );
   }
 
   public getSiblingEntries(id: string): readonly BranchingTreeSiblingEntry<T>[] {
@@ -208,6 +278,74 @@ export class BranchingTree<T extends Identified> {
         this.createSiblingEntry(this.nodes[childId]!, parent, index),
       ),
     );
+  }
+
+  public getChildEntries(id: string): readonly BranchingTreeChildEntry<T>[] {
+    const parent = this.nodes[id];
+    if (!parent) return [];
+
+    return Object.freeze(
+      parent.childrenIds.map((childId, index) =>
+        this.createSiblingEntry(this.nodes[childId]!, parent, index),
+      ),
+    );
+  }
+
+  public getPathEntriesTo(id: string): readonly BranchingTreePathEntry<T>[] {
+    const path = this.getNodePathTo(id);
+    if (!path) return [];
+
+    return Object.freeze(
+      path.filter((node) => node.value !== undefined).map((node) => this.createPathEntry(node)),
+    );
+  }
+
+  public getSelectedPathNeighborhood(): BranchingTreePathNeighborhood<T> {
+    const selectedIds = new Set(this.selectedPathEntriesCache.map((entry) => entry.nodeId));
+    const visibleNodes: Array<Omit<BranchingTreePathNeighborhoodNode<T>, "hiddenChildCount">> = [];
+
+    for (let depth = 0; depth < this.selectedPathEntriesCache.length; depth++) {
+      const entry = this.selectedPathEntriesCache[depth]!;
+      const entries =
+        entry.parentId === null
+          ? [this.createRootNeighborhoodEntry(entry)]
+          : this.getChildEntries(entry.parentId);
+
+      for (const childEntry of entries) {
+        const node = this.nodes[childEntry.nodeId]!;
+        visibleNodes.push({
+          ...childEntry,
+          depth,
+          childCount: node.childrenIds.length,
+        });
+      }
+    }
+
+    const visibleIds = new Set(visibleNodes.map((node) => node.nodeId));
+    const nodes = Object.freeze(
+      visibleNodes.map((node) =>
+        Object.freeze({
+          ...node,
+          hiddenChildCount: this.nodes[node.nodeId]!.childrenIds.filter(
+            (childId) => !visibleIds.has(childId),
+          ).length,
+        }),
+      ),
+    );
+    const edges = Object.freeze(
+      nodes
+        .filter((node) => node.parentId !== null && visibleIds.has(node.parentId))
+        .map((node) =>
+          Object.freeze({
+            id: BranchingTree.createEdgeId(node.parentId!, node.nodeId),
+            parentId: node.parentId!,
+            childId: node.nodeId,
+            selected: selectedIds.has(node.parentId!) && selectedIds.has(node.nodeId),
+          }),
+        ),
+    );
+
+    return Object.freeze({ nodes, edges });
   }
 
   public append(value: T, options: InsertOptions = {}): void {
@@ -286,18 +424,12 @@ export class BranchingTree<T extends Identified> {
   }
 
   public selectPathTo(id: string): void {
-    let current: BranchingTreeNode<T> | undefined = this.nodes[id];
-    if (!current) throw new Error(`Node ${id} not found.`);
+    const pathFromRoot = this.getNodePathTo(id);
+    if (!pathFromRoot) throw new Error(`Node ${id} not found.`);
 
-    const pathToRoot: BranchingTreeNode<T>[] = [];
-    while (current) {
-      pathToRoot.push(current);
-      current = current.parentId ? this.nodes[current.parentId] : undefined;
-    }
-
-    for (let index = pathToRoot.length - 1; index > 0; index--) {
-      const parent = pathToRoot[index]!;
-      const child = pathToRoot[index - 1]!;
+    for (let index = 0; index < pathFromRoot.length - 1; index++) {
+      const parent = pathFromRoot[index]!;
+      const child = pathFromRoot[index + 1]!;
       parent.selectedChildIndex = parent.childrenIds.indexOf(child.id);
     }
     this.rebuildSelectedPath();
@@ -406,6 +538,19 @@ export class BranchingTree<T extends Identified> {
     return parentId ? this.nodes[parentId] : undefined;
   }
 
+  private getNodePathTo(id: string): BranchingTreeNode<T>[] | undefined {
+    let current: BranchingTreeNode<T> | undefined = this.nodes[id];
+    if (!current) return undefined;
+
+    const path: BranchingTreeNode<T>[] = [];
+    while (current) {
+      path.push(current);
+      current = current.parentId ? this.nodes[current.parentId] : undefined;
+    }
+
+    return path.reverse();
+  }
+
   private insert(value: T, parentId: string, options: InsertOptions = {}): void {
     if (this.hasNode(value.id)) {
       throw new Error(`Node ${value.id} already exists.`);
@@ -491,6 +636,15 @@ export class BranchingTree<T extends Identified> {
     });
   }
 
+  private createRootNeighborhoodEntry(
+    entry: BranchingTreePathEntry<T>,
+  ): BranchingTreeChildEntry<T> {
+    return Object.freeze({
+      ...entry,
+      selected: true,
+    });
+  }
+
   private replaceCachedValue(value: T): void {
     const pathIndex = this.selectedPathCache.findIndex((pathValue) => pathValue.id === value.id);
     if (pathIndex !== -1) this.replaceCachedValueAt(pathIndex, value);
@@ -559,6 +713,10 @@ export class BranchingTree<T extends Identified> {
 
   public static createNodeId(prefix = DEFAULT_ID_PREFIX): string {
     return `${prefix}-${createRandomId()}`;
+  }
+
+  public static createEdgeId(parentId: string, childId: string): string {
+    return `${parentId}->${childId}`;
   }
 
   public static createLinearState<T extends Identified>(

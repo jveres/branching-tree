@@ -7,7 +7,7 @@ export type DemoActions = {
   deleteSiblingGroup: () => void;
   fitMap: () => void;
   keepOnlyVersion: () => void;
-  loadLinearTranscript: () => void;
+  createLinearPath: () => void;
   loadSize: (size: DemoSize) => void;
   nextVersion: () => void;
   previousVersion: () => void;
@@ -28,7 +28,7 @@ const currentActions: DemoActions = {
   deleteSiblingGroup: noop,
   fitMap: noop,
   keepOnlyVersion: noop,
-  loadLinearTranscript: noop,
+  createLinearPath: noop,
   loadSize: noop,
   nextVersion: noop,
   previousVersion: noop,
@@ -47,7 +47,7 @@ export const demoActions: DemoActions = {
   deleteSiblingGroup: () => currentActions.deleteSiblingGroup(),
   fitMap: () => currentActions.fitMap(),
   keepOnlyVersion: () => currentActions.keepOnlyVersion(),
-  loadLinearTranscript: () => currentActions.loadLinearTranscript(),
+  createLinearPath: () => currentActions.createLinearPath(),
   loadSize: (size) => currentActions.loadSize(size),
   nextVersion: () => currentActions.nextVersion(),
   previousVersion: () => currentActions.previousVersion(),

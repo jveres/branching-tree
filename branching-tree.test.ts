@@ -6,6 +6,7 @@ import {
   type BranchingTreeState,
   type Identified,
 } from "./branching-tree";
+import { createDemoState } from "./demo/controller";
 
 type Item = Identified & {
   text: string;
@@ -50,6 +51,7 @@ describe("BranchingTree", () => {
     expect(tree.getSiblingValues(ROOT_NODE_ID)).toEqual([]);
     expect(tree.getSiblingEntries(ROOT_NODE_ID)).toEqual([]);
     expect(tree.selectedPathEntries).toEqual([]);
+    expect(tree.getSelectedPathNeighborhood()).toEqual({ nodes: [], edges: [] });
   });
 
   it("should append values to the selected path", () => {
@@ -245,6 +247,135 @@ describe("BranchingTree", () => {
     expect(tree.getSiblings("b2")[0]?.childrenIds).toEqual([]);
     expect(tree.getSiblingValues("missing")).toEqual([]);
     expect(tree.getSiblingEntries(ROOT_NODE_ID)).toEqual([]);
+  });
+
+  it("should return node, value, child, and path read models without exposing node internals", () => {
+    const tree = new BranchingTree<Item>();
+    tree.append(item("a"));
+    tree.append(item("b"));
+    tree.addSibling("b", item("b2"));
+    tree.appendChild("a", item("b3"), { select: false });
+
+    const root = tree.getNode(ROOT_NODE_ID);
+    const children = tree.getChildren("a");
+    const firstChild = children[0];
+    firstChild?.childrenIds.push("external");
+
+    expect(root).toEqual({
+      id: ROOT_NODE_ID,
+      parentId: null,
+      childrenIds: ["a"],
+      selectedChildIndex: 0,
+    });
+    expect(tree.getNode("missing")).toBeUndefined();
+    expect(tree.getValue("b2")).toEqual(item("b2"));
+    expect(tree.getValue("missing")).toBeUndefined();
+    expect(children.map((node) => node.id)).toEqual(["b", "b2", "b3"]);
+    expect(tree.getChildren("missing")).toEqual([]);
+    expect(tree.getChildren("a")[0]?.childrenIds).toEqual([]);
+    expect(ids(tree.getChildValues("a"))).toEqual(["b", "b2", "b3"]);
+    expect(Object.isFrozen(tree.getChildValues("a"))).toBe(true);
+    expect(tree.getChildValues("missing")).toEqual([]);
+    expect(tree.getChildEntries("a")).toEqual([
+      {
+        value: item("b"),
+        nodeId: "b",
+        parentId: "a",
+        siblingIndex: 0,
+        siblingCount: 3,
+        hasPreviousSibling: false,
+        hasNextSibling: true,
+        selected: false,
+      },
+      {
+        value: item("b2"),
+        nodeId: "b2",
+        parentId: "a",
+        siblingIndex: 1,
+        siblingCount: 3,
+        hasPreviousSibling: true,
+        hasNextSibling: true,
+        selected: true,
+      },
+      {
+        value: item("b3"),
+        nodeId: "b3",
+        parentId: "a",
+        siblingIndex: 2,
+        siblingCount: 3,
+        hasPreviousSibling: true,
+        hasNextSibling: false,
+        selected: false,
+      },
+    ]);
+    expect(Object.isFrozen(tree.getChildEntries("a"))).toBe(true);
+    expect(Object.isFrozen(tree.getChildEntries("a")[0])).toBe(true);
+    expect(tree.getChildEntries("b")).toEqual([]);
+    expect(tree.getChildEntries("missing")).toEqual([]);
+    expect(tree.getPathEntriesTo("b")).toEqual([
+      {
+        value: item("a"),
+        nodeId: "a",
+        parentId: ROOT_NODE_ID,
+        siblingIndex: 0,
+        siblingCount: 1,
+        hasPreviousSibling: false,
+        hasNextSibling: false,
+      },
+      {
+        value: item("b"),
+        nodeId: "b",
+        parentId: "a",
+        siblingIndex: 0,
+        siblingCount: 3,
+        hasPreviousSibling: false,
+        hasNextSibling: true,
+      },
+    ]);
+    expect(Object.isFrozen(tree.getPathEntriesTo("b"))).toBe(true);
+    expect(Object.isFrozen(tree.getPathEntriesTo("b")[0])).toBe(true);
+    expect(tree.getPathEntriesTo("missing")).toEqual([]);
+    expect(ids(tree.selectedPath)).toEqual(["a", "b2"]);
+  });
+
+  it("should return a selected path neighborhood for tree map rendering", () => {
+    const tree = new BranchingTree<Item>();
+    tree.append(item("a"));
+    tree.append(item("b"));
+    tree.addSibling("b", item("b2"));
+    tree.append(item("c"));
+    tree.appendChild("b", item("hidden-under-b"));
+    tree.appendChild("b2", item("c2"), { select: false });
+
+    const neighborhood = tree.getSelectedPathNeighborhood();
+
+    expect(neighborhood.nodes.map((node) => node.nodeId)).toEqual(["a", "b", "b2", "c", "c2"]);
+    expect(
+      neighborhood.nodes.map((node) => ({
+        id: node.nodeId,
+        depth: node.depth,
+        selected: node.selected,
+        childCount: node.childCount,
+        hiddenChildCount: node.hiddenChildCount,
+      })),
+    ).toEqual([
+      { id: "a", depth: 0, selected: true, childCount: 2, hiddenChildCount: 0 },
+      { id: "b", depth: 1, selected: false, childCount: 1, hiddenChildCount: 1 },
+      { id: "b2", depth: 1, selected: true, childCount: 2, hiddenChildCount: 0 },
+      { id: "c", depth: 2, selected: true, childCount: 0, hiddenChildCount: 0 },
+      { id: "c2", depth: 2, selected: false, childCount: 0, hiddenChildCount: 0 },
+    ]);
+    expect(neighborhood.edges).toEqual([
+      { id: "a->b", parentId: "a", childId: "b", selected: false },
+      { id: "a->b2", parentId: "a", childId: "b2", selected: true },
+      { id: "b2->c", parentId: "b2", childId: "c", selected: true },
+      { id: "b2->c2", parentId: "b2", childId: "c2", selected: false },
+    ]);
+    expect(Object.isFrozen(neighborhood)).toBe(true);
+    expect(Object.isFrozen(neighborhood.nodes)).toBe(true);
+    expect(Object.isFrozen(neighborhood.nodes[0])).toBe(true);
+    expect(Object.isFrozen(neighborhood.edges)).toBe(true);
+    expect(Object.isFrozen(neighborhood.edges[0])).toBe(true);
   });
 
   it("should insert without selecting when requested", () => {
@@ -581,6 +712,25 @@ describe("BranchingTree", () => {
         hasNextSibling: false,
       },
     ]);
+    expect(tree.getPathEntriesTo(ROOT_NODE_ID)).toEqual(tree.selectedPathEntries);
+    expect(tree.getSelectedPathNeighborhood()).toEqual({
+      nodes: [
+        {
+          value: item(ROOT_NODE_ID),
+          nodeId: ROOT_NODE_ID,
+          parentId: null,
+          siblingIndex: 0,
+          siblingCount: 1,
+          hasPreviousSibling: false,
+          hasNextSibling: false,
+          selected: true,
+          depth: 0,
+          childCount: 0,
+          hiddenChildCount: 0,
+        },
+      ],
+      edges: [],
+    });
   });
 
   it("should reset to a custom root id", () => {
@@ -607,6 +757,37 @@ describe("BranchingTree", () => {
     state.nodes[ROOT_NODE_ID]?.childrenIds.push("external");
 
     expect(tree.getState().nodes[ROOT_NODE_ID]?.childrenIds).toEqual(["a"]);
+  });
+
+  it("should create a linear state from the selected path without changing ids", () => {
+    const tree = new BranchingTree<Item>();
+    tree.append(item("a"));
+    tree.append(item("b"));
+    tree.addSibling("b", item("b2"));
+    tree.append(item("c"));
+    tree.appendChild("b", item("inactive"));
+
+    tree.selectPathTo("c");
+    const state = tree.getSelectedPathState();
+    const linearTree = new BranchingTree(state);
+
+    expect(Object.keys(state.nodes).sort()).toEqual([ROOT_NODE_ID, "a", "b2", "c"].sort());
+    expect(state.nodes[ROOT_NODE_ID]?.childrenIds).toEqual(["a"]);
+    expect(state.nodes.a?.childrenIds).toEqual(["b2"]);
+    expect(state.nodes.b2?.childrenIds).toEqual(["c"]);
+    expect(state.nodes.c?.childrenIds).toEqual([]);
+    expect(ids(linearTree.selectedPath)).toEqual(["a", "b2", "c"]);
+  });
+
+  it("should create an empty selected path state for an empty tree", () => {
+    const tree = new BranchingTree<Item>();
+
+    expect(tree.getSelectedPathState()).toEqual({
+      rootId: ROOT_NODE_ID,
+      nodes: {
+        [ROOT_NODE_ID]: rootNode(),
+      },
+    });
   });
 
   it("should report tree statistics including unreachable nodes", () => {
@@ -783,6 +964,10 @@ describe("BranchingTree", () => {
     expect(BranchingTree.createNodeId()).toBe("node-i");
   });
 
+  it("should create stable edge ids", () => {
+    expect(BranchingTree.createEdgeId("parent", "child")).toBe("parent->child");
+  });
+
   it("should create an empty linear state", () => {
     expect(BranchingTree.createLinearState([], { rootId: "root" })).toEqual({
       rootId: "root",
@@ -831,6 +1016,24 @@ describe("BranchingTree", () => {
         },
       },
     });
+  });
+
+  it("should select every imported value from a generated linear state", () => {
+    const state = BranchingTree.createLinearState(
+      [item("old-a"), item("old-b"), item("old-c"), item("old-d")],
+      {
+        idFactory: (() => {
+          const generatedIds = ["a", "b", "c", "d"];
+          return () => generatedIds.shift() ?? "unused";
+        })(),
+        rootId: "root",
+      },
+    );
+    const tree = new BranchingTree(state);
+
+    expect(ids(tree.selectedPath)).toEqual(["a", "b", "c", "d"]);
+    expect(tree.selectedPathEntries.map((entry) => entry.nodeId)).toEqual(["a", "b", "c", "d"]);
+    expect(tree.head?.id).toBe("d");
   });
 
   it("should create linear state with the default id factory", () => {
@@ -991,4 +1194,28 @@ describe("BranchingTree", () => {
   ])("should reject cloning state with $name", ({ state, error }) => {
     expect(() => BranchingTree.cloneStateWithNewIds(state)).toThrow(error);
   });
+});
+
+describe("demo sample data", () => {
+  it.each([2, 3, 128, 256, 512])(
+    "should start with a user message and only end paths on assistant messages for %i nodes",
+    (nodeCount) => {
+      const state = createDemoState(nodeCount);
+      const root = state.nodes[state.rootId];
+
+      expect(root?.childrenIds).toHaveLength(1);
+
+      const firstMessage = state.nodes[root?.childrenIds[0] ?? ""];
+      expect(firstMessage?.value?.role).toBe("user");
+
+      const messages = Object.values(state.nodes).filter((node) => node.value !== undefined);
+      const leaves = messages.filter((node) => node.childrenIds.length === 0);
+      const userMessages = messages.filter((node) => node.value?.role === "user");
+
+      expect(messages).toHaveLength(nodeCount);
+      expect(leaves.length).toBeGreaterThan(0);
+      expect(leaves.every((node) => node.value?.role === "assistant")).toBe(true);
+      expect(userMessages.every((node) => node.childrenIds.length > 0)).toBe(true);
+    },
+  );
 });

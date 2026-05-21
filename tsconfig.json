@@ -5,12 +5,12 @@
     "moduleResolution": "Bundler",
     "noEmit": true,
     "noUncheckedIndexedAccess": true,
-    "jsx": "react-jsx",
-    "jsxImportSource": "@geajs/core",
+    "jsx": "preserve",
+    "jsxImportSource": "@solidjs/web",
     "skipLibCheck": true,
     "strict": true,
     "target": "ES2022",
     "verbatimModuleSyntax": true
   },
-  "include": ["*.ts", "demo/gea-env.d.ts", "demo/**/*.ts", "demo/**/*.tsx"]
+  "include": ["*.ts", "demo/**/*.ts", "demo/**/*.tsx"]
 }

@@ -114,12 +114,60 @@ callers can't accidentally mutate the tree shape.
   `siblingCount`, `hasPreviousSibling`, and `hasNextSibling`.
 - `head` returns the active leaf value.
 - `hasNode(id)`, `hasParent(id)`, and `hasChildren(id)` return boolean checks.
+- `getNode(id)` returns a cloned node, or `undefined` when the id doesn't
+  exist.
+- `getValue(id)` returns a node value, or `undefined` when the id doesn't exist
+  or points to an unvalued root.
 - `getSiblingPosition(id)` returns `{ current, total }` using one-based indexes.
 - `getSiblings(id)` returns cloned sibling nodes for the referenced node.
+- `getChildren(id)` returns cloned child nodes for the referenced node.
 - `getSiblingValues(id)` returns sibling values for the referenced node.
+- `getChildValues(id)` returns child values for the referenced node.
 - `getSiblingEntries(id)` returns sibling values with selection metadata.
+- `getChildEntries(id)` returns child values with selection metadata relative to
+  the referenced parent node.
+- `getPathEntriesTo(id)` returns path entries from the root to a node without
+  changing the selected path.
+- `getSelectedPathNeighborhood()` returns the active path plus each active
+  node's visible siblings as graph nodes and edges.
+- `getSelectedPathState()` returns a serializable state containing only the
+  current selected path. It preserves the selected nodes' ids and values while
+  pruning all inactive siblings and descendants.
 - `getStats()` reports node count, selected path length, depth, leaves, branch
   points, and unreachable nodes.
+
+## Building a selected path map
+
+Use `getSelectedPathNeighborhood()` when you need data for a tree map like the
+demo. The helper returns only graph facts: which nodes are visible, how they
+relate to each other, which ones are selected, and how many descendants are
+hidden. It doesn't include coordinates or rendering details.
+
+```ts
+const graph = tree.getSelectedPathNeighborhood();
+
+for (const node of graph.nodes) {
+  console.log(node.nodeId, node.depth, node.siblingIndex, node.hiddenChildCount);
+}
+
+for (const edge of graph.edges) {
+  console.log(edge.parentId, edge.childId, edge.selected);
+}
+```
+
+Each `BranchingTreePathNeighborhoodNode<T>` includes the same fields as
+`BranchingTreeSiblingEntry<T>`, plus these map-oriented fields:
+
+- `depth` is the selected-path depth where the node appears.
+- `childCount` is the total number of direct children under the node.
+- `hiddenChildCount` is the number of direct children that aren't visible in the
+  returned neighborhood.
+
+Each `BranchingTreePathNeighborhoodEdge` includes these fields:
+
+- `id` is a stable edge id from `BranchingTree.createEdgeId(parentId, childId)`.
+- `parentId` and `childId` identify the connected nodes.
+- `selected` is `true` when the edge is part of the active selected path.
 
 ## Writing data
 
@@ -182,6 +230,16 @@ like `node-abc123`.
 
 ```ts
 const id = BranchingTree.createNodeId("message");
+```
+
+### `createEdgeId(parentId, childId)`
+
+`createEdgeId` returns a stable string id for a parent-to-child edge. Use it
+when you need a key for rendered edge elements.
+
+```ts
+const edgeId = BranchingTree.createEdgeId("message-1", "message-2");
+// edgeId === "message-1->message-2"
 ```
 
 ### `createLinearState(values, options)`
@@ -255,8 +313,9 @@ double-click zoom, fit-to-view, size presets, click-to-select nodes, sibling
 version switching, active path highlighting, adding versions and child messages,
 truncating after a message, deleting from a selected message, and pruning
 message versions with or without keeping the selected version. It also includes
-a linear transcript import action backed by `BranchingTree.createLinearState`
-and uses `BranchingTree.createNodeId` when generating new demo messages.
+a create-linear action backed by `getSelectedPathState()` and uses
+`getSelectedPathNeighborhood()` for map rendering. New demo messages use
+`BranchingTree.createNodeId`.
 
 ```sh
 pnpm run demo

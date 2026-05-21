@@ -2,7 +2,8 @@ import {
   BranchingTree,
   ROOT_NODE_ID,
   type BranchingTreeNode,
-  type BranchingTreeSiblingEntry,
+  type BranchingTreePathNeighborhoodEdge,
+  type BranchingTreePathNeighborhoodNode,
   type BranchingTreeState,
   type Identified,
 } from "../branching-tree";
@@ -27,11 +28,11 @@ type PositionedNode = {
   depth: number;
   siblingIndex: number;
   siblingCount: number;
+  selected: boolean;
   hiddenChildCount: number;
 };
 
-type PositionedEdge = {
-  id: string;
+type PositionedEdge = BranchingTreePathNeighborhoodEdge & {
   d: string;
 };
 
@@ -86,7 +87,7 @@ const NODE_WIDTH = 190;
 const NODE_HEIGHT = 52;
 const VERSION_GAP = 18;
 const COLUMN_WIDTH = NODE_WIDTH + VERSION_GAP;
-const ROW_GAP = 96;
+const ROW_GAP = 112;
 const MAP_PADDING = 48;
 const FIT_PADDING = 28;
 const CANVAS_PADDING = 96;
@@ -98,6 +99,15 @@ const DRAG_THRESHOLD = 4;
 const WHEEL_ZOOM_SPEED = 0.0015;
 const CHILD_INDICATOR_RADIUS = 10;
 const CHILD_INDICATOR_STEM = 10;
+const CHILD_INDICATOR_DEPTH = CHILD_INDICATOR_STEM + CHILD_INDICATOR_RADIUS * 2;
+const EDGE_BADGE_CLEARANCE = 8;
+const MINIMAP_WIDTH = 248;
+const MINIMAP_HEIGHT = 170;
+const MINIMAP_PADDING = 14;
+const MINIMAP_MARGIN = 16;
+const MINIMAP_DOT = 2.5;
+const MINIMAP_DOT_ACTIVE = 3.6;
+const NODE_SCROLL_MARGIN = 48;
 
 const roleLabels: Record<ChatRole, string> = {
   assistant: "AI",
@@ -128,6 +138,10 @@ const answers = [
 
 let svg: SVGSVGElement;
 let mapPanel: HTMLElement;
+let minimap: HTMLElement;
+let minimapSvg: SVGSVGElement;
+let minimapCount: HTMLElement;
+let minimapToggle: HTMLButtonElement;
 
 let tree = new BranchingTree<DemoMessage>();
 let layout: LayoutModel = createEmptyLayout();
@@ -136,7 +150,7 @@ let edgeElements = new Map<string, SVGPathElement>();
 let positionCache = new Map<string, CachedPosition>();
 let selectedNodeIds = new Set<string>();
 let selectedEdgeIds = new Set<string>();
-let selectedHeadId: string | null = null;
+let highlightedNodeId: string | null = null;
 let viewportGroup: SVGGElement | null = null;
 let edgeLayer: SVGGElement | null = null;
 let childLinkLayer: SVGGElement | null = null;
@@ -144,12 +158,20 @@ let nodeLayer: SVGGElement | null = null;
 let childBadgeLayer: SVGGElement | null = null;
 let childLinkElements = new Map<string, SVGLineElement>();
 let childBadgeElements = new Map<string, SVGGElement>();
+let minimapDotElements = new Map<string, SVGCircleElement>();
+let minimapEdgeElements = new Map<string, SVGLineElement>();
+let minimapActiveNodeIds = new Set<string>();
+let minimapActiveEdgeIds = new Set<string>();
+let minimapHeadId: string | null = null;
 let dragState: DragState | null = null;
 let inspectorNodeId: string | null = null;
 let suppressNextClick = false;
 let currentSize: DemoSize = DEFAULT_SIZE;
 let nextGeneratedSeed = DEFAULT_SIZE + 1;
 let camera: Camera = { x: 0, y: 0, scale: 1 };
+let cameraAnimationId: number | null = null;
+let minimapStructureDirty = true;
+let minimapCollapsed = false;
 let demoStarted = false;
 
 export function startDemo(): void {
@@ -158,6 +180,10 @@ export function startDemo(): void {
 
   svg = mustElement<SVGSVGElement>("tree-map");
   mapPanel = mustElement<HTMLElement>("map-panel");
+  minimap = mustElement<HTMLElement>("minimap");
+  minimapSvg = mustElement<SVGSVGElement>("minimap-svg");
+  minimapCount = mustElement<HTMLElement>("minimap-count");
+  minimapToggle = mustElement<HTMLButtonElement>("minimap-toggle");
 
   setDemoActions({
     addChild,
@@ -166,7 +192,7 @@ export function startDemo(): void {
     deleteSiblingGroup,
     fitMap,
     keepOnlyVersion,
-    loadLinearTranscript,
+    createLinearPath,
     loadSize(size) {
       loadTree(size);
       setActiveSizeButton(size);
@@ -200,18 +226,27 @@ export function startDemo(): void {
 
     const node = getNodeElement(event.target);
     const id = node?.dataset.id;
-    if (id) selectNode(id);
+    if (id) {
+      selectNodeAndFocus(id);
+    }
   });
 
   svg.addEventListener("keydown", (event) => {
-    if (event.key !== "Enter" && event.key !== " ") return;
-
     const node = getNodeElement(event.target);
     const id = node?.dataset.id;
     if (!id) return;
 
+    if (event.key === "Enter" || event.key === " ") {
+      event.preventDefault();
+      selectNodeAndFocus(id);
+      return;
+    }
+
+    const targetId = getKeyboardNavigationTarget(id, event.key);
+    if (!targetId) return;
+
     event.preventDefault();
-    selectNode(id);
+    selectNodeAndFocus(targetId);
   });
 
   mapPanel.addEventListener("pointerdown", (event) => {
@@ -246,6 +281,7 @@ export function startDemo(): void {
     if (!dragState.moved) return;
 
     event.preventDefault();
+    cancelCameraAnimation();
     camera = {
       ...camera,
       x: dragState.startCameraX + deltaX,
@@ -262,6 +298,19 @@ export function startDemo(): void {
   mapPanel.addEventListener("wheel", (event) => handleWheel(event), { passive: false });
   window.addEventListener("resize", () => fitMap());
 
+  mapPanel.addEventListener("scroll", () => updateMinimapPosition());
+  minimap.addEventListener("pointerdown", (event) => event.stopPropagation());
+  minimap.addEventListener("wheel", (event) => event.stopPropagation());
+  minimapToggle.addEventListener("click", (event) => {
+    event.stopPropagation();
+    setMinimapCollapsed(!minimapCollapsed);
+  });
+  minimapSvg.addEventListener("click", (event) => {
+    const target = event.target instanceof Element ? event.target.closest(".minimap-dot") : null;
+    const id = target instanceof SVGCircleElement ? target.dataset.id : null;
+    if (id) selectNode(id);
+  });
+
   loadTree(DEFAULT_SIZE);
 }
 
@@ -270,14 +319,8 @@ function loadTree(size: DemoSize): void {
   loadState(createDemoState(size), size + 1);
 }
 
-function loadLinearTranscript(): void {
-  const transcript = createLinearTranscript();
-  loadState(
-    BranchingTree.createLinearState(transcript, {
-      idFactory: createSequentialIdFactory("linear"),
-    }),
-    transcript.length + 1,
-  );
+function createLinearPath(): void {
+  loadState(tree.getSelectedPathState(), nextGeneratedSeed);
   setActiveSizeButton(null);
 }
 
@@ -286,61 +329,26 @@ function loadState(state: BranchingTreeState<DemoMessage>, nextSeed: number): vo
   nextGeneratedSeed = nextSeed;
   tree = new BranchingTree(state);
   positionCache = new Map();
+  minimapStructureDirty = true;
   resetSvgLayers();
   layout = createVisibleLayout();
   syncMap(layout);
   fitMap();
 
-  const headId = tree.head?.id ?? layout.nodes[0]?.id;
-  if (headId) {
-    applySelectionClasses();
-    renderInspector(headId);
+  const inspectorId = tree.head?.id ?? layout.nodes[0]?.id;
+  applySelectionClasses(inspectorId ?? null);
+  if (inspectorId) {
+    renderInspector(inspectorId);
   } else {
-    applySelectionClasses();
     renderEmptyInspector();
   }
 
   demoStore.renderTime = formatMs(performance.now() - started);
   updateMetrics();
+  syncMinimap(inspectorId ?? null);
 }
 
-function createLinearTranscript(): DemoMessage[] {
-  return [
-    createImportedMessage("source-user-1", "user", "Summarize the current workspace state.", 0, 38),
-    createImportedMessage(
-      "source-assistant-1",
-      "assistant",
-      "The tree keeps one active transcript while preserving alternate message versions.",
-      0,
-      84,
-    ),
-    createImportedMessage("source-user-2", "user", "Show the operations a chat UI needs.", 1, 42),
-    createImportedMessage(
-      "source-assistant-2",
-      "assistant",
-      "Version switching, branch pruning, truncation, and regeneration all map to tree APIs.",
-      1,
-      92,
-    ),
-  ];
-}
-
-function createImportedMessage(
-  id: string,
-  role: ChatRole,
-  content: string,
-  turn: number,
-  tokenCount: number,
-): DemoMessage {
-  return { id, role, content, tokenCount, turn };
-}
-
-function createSequentialIdFactory(prefix: string): () => string {
-  let nextId = 1;
-  return () => `${prefix}-${String(nextId++).padStart(4, "0")}`;
-}
-
-function createDemoState(targetNodeCount: number): BranchingTreeState<DemoMessage> {
+export function createDemoState(targetNodeCount: number): BranchingTreeState<DemoMessage> {
   const root = createRootNode();
   const nodes: Record<string, BranchingTreeNode<DemoMessage>> = {
     [ROOT_NODE_ID]: root,
@@ -358,7 +366,13 @@ function createDemoState(targetNodeCount: number): BranchingTreeState<DemoMessag
     if (!parent) continue;
 
     const remaining = targetNodeCount - nextId + 1;
-    const childCount = Math.min(remaining, getChildCount(parentInfo.depth, parentInfo.seed));
+    const childCount = getChildCount(
+      parent,
+      parentInfo.depth,
+      parentInfo.seed,
+      remaining,
+      countUserLeaves(nodes),
+    );
     if (childCount === 0) continue;
 
     const childIds: string[] = [];
@@ -413,13 +427,51 @@ function createMessage(
   };
 }
 
-function getChildCount(depth: number, seed: number): number {
+function getChildCount(
+  parent: BranchingTreeNode<DemoMessage>,
+  depth: number,
+  seed: number,
+  remaining: number,
+  userLeafCount: number,
+): number {
+  const isUserLeaf = parent.value?.role === "user" && parent.childrenIds.length === 0;
+  const pendingRequiredReplies = userLeafCount - (isUserLeaf ? 1 : 0);
+  const capacity = remaining - pendingRequiredReplies;
+
+  if (capacity <= 0) return 0;
+  if (depth < 0) return capacity >= 2 ? 1 : 0;
+
+  const desiredCount = getDesiredChildCount(depth, seed);
+  if (parent.value?.role === "user") {
+    return Math.min(capacity, Math.max(isUserLeaf ? 1 : 0, desiredCount));
+  }
+
+  return Math.min(Math.floor(capacity / 2), desiredCount);
+}
+
+function getDesiredChildCount(depth: number, seed: number): number {
   if (depth < 0) return 1;
-  if (depth > 15) return seed % 3 === 0 ? 1 : 0;
-  if (depth % 5 === 1) return 4;
-  if (depth % 3 === 0) return 3;
-  if (depth % 2 === 0) return 2;
-  return 1;
+
+  const roll = getSampleRoll(depth, seed);
+  if (depth <= 1) return 2 + ((roll + seed) % 3);
+  if (depth <= 4) return [1, 2, 3, 1, 4, 2, 1, 3][roll % 8] ?? 1;
+  if (depth <= 8) return [0, 1, 2, 1, 3, 0, 2, 1, 4, 0, 1, 2, 0, 3, 1, 2][roll] ?? 0;
+  if (depth <= 12) return roll % 5 === 0 ? 2 : roll % 3 === 0 ? 1 : 0;
+  return roll === 0 ? 1 : 0;
+}
+
+function getSampleRoll(depth: number, seed: number): number {
+  return Math.abs(seed * seed * 7 + seed * 11 + depth * 13) % 16;
+}
+
+function countUserLeaves(nodes: Readonly<Record<string, BranchingTreeNode<DemoMessage>>>): number {
+  let count = 0;
+
+  for (const node of Object.values(nodes)) {
+    if (node.value?.role === "user" && node.childrenIds.length === 0) count++;
+  }
+
+  return count;
 }
 
 function getRole(depth: number): ChatRole {
@@ -431,26 +483,32 @@ function getVersionLabel(siblingIndex: number, siblingCount: number): string {
 }
 
 function createVisibleLayout(): LayoutModel {
-  const state = tree.getState();
+  const neighborhood = tree.getSelectedPathNeighborhood();
   const stats = tree.getStats();
   const nodes: PositionedNode[] = [];
   const edges: PositionedEdge[] = [];
   const nodeById = new Map<string, PositionedNode>();
   const edgeIds = new Set<string>();
-  const entries = tree.selectedPathEntries;
+  const nodesByDepth = new Map<number, BranchingTreePathNeighborhoodNode<DemoMessage>[]>();
 
-  for (let depth = 0; depth < entries.length; depth++) {
-    const entry = entries[depth];
-    if (!entry) continue;
+  for (const node of neighborhood.nodes) {
+    const siblings = nodesByDepth.get(node.depth);
+    if (siblings) {
+      siblings.push(node);
+    } else {
+      nodesByDepth.set(node.depth, [node]);
+    }
+  }
 
-    const siblings = tree.getSiblingEntries(entry.nodeId);
-    const positions = getSiblingPositions(siblings, entry.nodeId, depth);
+  for (const [depth, siblings] of nodesByDepth) {
+    const selected = siblings.find((node) => node.selected) ?? siblings[0];
+    if (!selected) continue;
 
+    const positions = getSiblingPositions(siblings, selected.nodeId, depth);
     for (const sibling of siblings) {
       const position = positions.get(sibling.nodeId);
       if (!position) continue;
 
-      const childIds = state.nodes[sibling.nodeId]?.childrenIds ?? [];
       const node: PositionedNode = {
         id: sibling.nodeId,
         parentId: sibling.parentId,
@@ -460,7 +518,8 @@ function createVisibleLayout(): LayoutModel {
         depth,
         siblingIndex: sibling.siblingIndex,
         siblingCount: sibling.siblingCount,
-        hiddenChildCount: childIds.length,
+        selected: sibling.selected,
+        hiddenChildCount: sibling.hiddenChildCount,
       };
 
       nodes.push(node);
@@ -468,19 +527,13 @@ function createVisibleLayout(): LayoutModel {
     }
   }
 
-  for (const node of nodes) {
-    const childIds = state.nodes[node.id]?.childrenIds ?? [];
-    node.hiddenChildCount = childIds.filter((childId) => !nodeById.has(childId)).length;
-  }
-
-  for (const child of nodes) {
-    if (child.parentId === null || child.parentId === state.rootId) continue;
-
-    const parent = nodeById.get(child.parentId);
-    if (!parent) continue;
+  for (const neighborhoodEdge of neighborhood.edges) {
+    const parent = nodeById.get(neighborhoodEdge.parentId);
+    const child = nodeById.get(neighborhoodEdge.childId);
+    if (!parent || !child) continue;
 
     const edge: PositionedEdge = {
-      id: createEdgeId(parent.id, child.id),
+      ...neighborhoodEdge,
       d: createEdgePath(parent, child),
     };
     edges.push(edge);
@@ -505,7 +558,7 @@ function createVisibleLayout(): LayoutModel {
 }
 
 function getSiblingPositions(
-  siblings: readonly BranchingTreeSiblingEntry<DemoMessage>[],
+  siblings: readonly BranchingTreePathNeighborhoodNode<DemoMessage>[],
   selectedNodeId: string,
   depth: number,
 ): Map<string, CachedPosition> {
@@ -555,7 +608,7 @@ function getLayoutBounds(nodes: readonly PositionedNode[]): { width: number; hei
 }
 
 function getChildIndicatorDepth(node: PositionedNode): number {
-  return node.hiddenChildCount > 0 ? CHILD_INDICATOR_STEM + CHILD_INDICATOR_RADIUS * 2 : 0;
+  return node.hiddenChildCount > 0 ? CHILD_INDICATOR_DEPTH : 0;
 }
 
 function resetSvgLayers(): void {
@@ -565,7 +618,7 @@ function resetSvgLayers(): void {
   childBadgeElements = new Map();
   selectedNodeIds = new Set();
   selectedEdgeIds = new Set();
-  selectedHeadId = null;
+  highlightedNodeId = null;
   svg.textContent = "";
 
   viewportGroup = svgElement("g");
@@ -643,14 +696,19 @@ function appendNodeElement(node: PositionedNode): void {
   if (!nodeLayer) return;
 
   const group = svgElement("g");
+  const clipPath = svgElement("clipPath");
+  const clipRect = svgElement("rect");
+  const textGroup = svgElement("g");
+  const selectionRing = svgElement("rect");
   const rect = svgElement("rect");
   const role = svgElement("text");
   const label = svgElement("text");
   const meta = svgElement("text");
   const title = svgElement("title");
+  const clipId = createNodeTextClipId(node.id);
   const versionLabel = getVersionLabel(node.siblingIndex, node.siblingCount);
 
-  group.setAttribute("class", `tree-node role-${node.value.role} is-new`);
+  group.setAttribute("class", `tree-node role-${node.value.role}`);
   group.setAttribute("transform", `translate(${node.x} ${node.y})`);
   group.setAttribute("tabindex", "0");
   group.setAttribute("role", "treeitem");
@@ -663,7 +721,7 @@ function appendNodeElement(node: PositionedNode): void {
       return;
     }
 
-    selectNode(node.id);
+    selectNodeAndFocus(node.id);
   });
 
   rect.setAttribute("class", "node-card");
@@ -671,6 +729,23 @@ function appendNodeElement(node: PositionedNode): void {
   rect.setAttribute("y", String(-NODE_HEIGHT / 2));
   rect.setAttribute("width", String(NODE_WIDTH));
   rect.setAttribute("height", String(NODE_HEIGHT));
+
+  clipPath.setAttribute("id", clipId);
+
+  clipRect.setAttribute("x", String(-NODE_WIDTH / 2 + 10));
+  clipRect.setAttribute("y", String(-NODE_HEIGHT / 2 + 6));
+  clipRect.setAttribute("width", String(NODE_WIDTH - 20));
+  clipRect.setAttribute("height", String(NODE_HEIGHT - 12));
+  clipPath.append(clipRect);
+
+  textGroup.setAttribute("clip-path", `url(#${clipId})`);
+
+  selectionRing.setAttribute("class", "node-selection-ring");
+  selectionRing.setAttribute("x", String(-NODE_WIDTH / 2));
+  selectionRing.setAttribute("y", String(-NODE_HEIGHT / 2));
+  selectionRing.setAttribute("width", String(NODE_WIDTH));
+  selectionRing.setAttribute("height", String(NODE_HEIGHT));
+  selectionRing.setAttribute("rx", "8");
 
   role.setAttribute("class", "node-role");
   role.setAttribute("x", String(-NODE_WIDTH / 2 + 12));
@@ -688,11 +763,11 @@ function appendNodeElement(node: PositionedNode): void {
   meta.textContent = createNodeMetaText(node);
 
   title.textContent = createNodeTitle(node);
-  group.append(title, rect, role, label, meta);
+  textGroup.append(role, label, meta);
+  group.append(title, clipPath, selectionRing, rect, textGroup);
 
   nodeElements.set(node.id, group);
   nodeLayer.append(group);
-  window.setTimeout(() => group.classList.remove("is-new"), 220);
 }
 
 function updateNodeElement(element: SVGGElement, node: PositionedNode): void {
@@ -716,7 +791,11 @@ function updateNodeElement(element: SVGGElement, node: PositionedNode): void {
 }
 
 function createNodeMetaText(node: PositionedNode): string {
-  return `${node.siblingIndex + 1}/${node.siblingCount} · ${shorten(node.value.content, 30)}`;
+  return `${node.siblingIndex + 1}/${node.siblingCount} · ${shorten(node.value.content, 24)}`;
+}
+
+function createNodeTextClipId(nodeId: string): string {
+  return `node-text-clip-${nodeId.replaceAll(/[^A-Za-z0-9_-]/g, "-")}`;
 }
 
 function createNodeTitle(node: PositionedNode): string {
@@ -774,16 +853,10 @@ function updateChildLink(line: SVGLineElement, node: PositionedNode): void {
 
 function createChildBadge(): SVGGElement {
   const badge = svgElement("g");
-  const halo = svgElement("circle");
   const circle = svgElement("circle");
   const count = svgElement("text");
 
   badge.setAttribute("class", "node-child-badge");
-
-  halo.setAttribute("class", "node-child-halo");
-  halo.setAttribute("cx", "0");
-  halo.setAttribute("cy", "0");
-  halo.setAttribute("r", String(CHILD_INDICATOR_RADIUS + 2));
 
   circle.setAttribute("class", "node-child-dot");
   circle.setAttribute("cx", "0");
@@ -794,7 +867,7 @@ function createChildBadge(): SVGGElement {
   count.setAttribute("x", "0");
   count.setAttribute("y", "0.5");
 
-  badge.append(halo, circle, count);
+  badge.append(circle, count);
   return badge;
 }
 
@@ -815,6 +888,135 @@ function formatCount(count: number): string {
   return count > 99 ? "99+" : String(count);
 }
 
+function getKeyboardNavigationTarget(id: string, key: string): string | null {
+  switch (key) {
+    case "ArrowUp":
+      return getKeyboardParentTarget(id);
+    case "ArrowDown":
+      return getKeyboardChildTarget(id);
+    case "ArrowLeft":
+      return getKeyboardSiblingTarget(id, -1);
+    case "ArrowRight":
+      return getKeyboardSiblingTarget(id, 1);
+    case "Home":
+      return layout.nodes[0]?.id ?? null;
+    case "End":
+      return layout.nodes.at(-1)?.id ?? null;
+    default:
+      return null;
+  }
+}
+
+function getKeyboardParentTarget(id: string): string | null {
+  const parentId = tree.getNode(id)?.parentId ?? null;
+  if (!parentId || parentId === tree.rootNodeId) return null;
+
+  return parentId;
+}
+
+function getKeyboardChildTarget(id: string): string | null {
+  const children = tree.getChildEntries(id);
+  const child = children.find((entry) => entry.selected) ?? children[0];
+  return child?.nodeId ?? null;
+}
+
+function getKeyboardSiblingTarget(id: string, offset: number): string | null {
+  const siblings = tree.getSiblingEntries(id);
+  const current = siblings.find((entry) => entry.nodeId === id);
+  if (!current) return null;
+
+  return siblings[current.siblingIndex + offset]?.nodeId ?? null;
+}
+
+function focusNode(id: string, options: { scrollIntoView?: boolean } = {}): void {
+  const element = nodeElements.get(id);
+  if (!element) return;
+
+  element.focus({ preventScroll: true });
+  if (options.scrollIntoView === true) smoothScrollNodeIntoView(element);
+}
+
+function smoothScrollNodeIntoView(element: SVGGElement): void {
+  const nodeBounds = element.getBoundingClientRect();
+  const panelBounds = mapPanel.getBoundingClientRect();
+  let deltaX = 0;
+  let deltaY = 0;
+
+  if (nodeBounds.left < panelBounds.left + NODE_SCROLL_MARGIN) {
+    deltaX = nodeBounds.left - panelBounds.left - NODE_SCROLL_MARGIN;
+  } else if (nodeBounds.right > panelBounds.right - NODE_SCROLL_MARGIN) {
+    deltaX = nodeBounds.right - panelBounds.right + NODE_SCROLL_MARGIN;
+  }
+
+  if (nodeBounds.top < panelBounds.top + NODE_SCROLL_MARGIN) {
+    deltaY = nodeBounds.top - panelBounds.top - NODE_SCROLL_MARGIN;
+  } else if (nodeBounds.bottom > panelBounds.bottom - NODE_SCROLL_MARGIN) {
+    deltaY = nodeBounds.bottom - panelBounds.bottom + NODE_SCROLL_MARGIN;
+  }
+
+  if (deltaX === 0 && deltaY === 0) return;
+
+  const maxScrollLeft = Math.max(0, mapPanel.scrollWidth - mapPanel.clientWidth);
+  const maxScrollTop = Math.max(0, mapPanel.scrollHeight - mapPanel.clientHeight);
+  const targetScrollLeft = clamp(mapPanel.scrollLeft + deltaX, 0, maxScrollLeft);
+  const targetScrollTop = clamp(mapPanel.scrollTop + deltaY, 0, maxScrollTop);
+  const appliedScrollX = targetScrollLeft - mapPanel.scrollLeft;
+  const appliedScrollY = targetScrollTop - mapPanel.scrollTop;
+  const remainingX = deltaX - appliedScrollX;
+  const remainingY = deltaY - appliedScrollY;
+
+  if (appliedScrollX !== 0 || appliedScrollY !== 0) {
+    mapPanel.scrollTo({
+      left: targetScrollLeft,
+      top: targetScrollTop,
+      behavior: "smooth",
+    });
+  }
+
+  smoothPanCameraBy(-remainingX, -remainingY);
+}
+
+function smoothPanCameraBy(deltaX: number, deltaY: number): void {
+  if (deltaX === 0 && deltaY === 0) return;
+
+  cancelCameraAnimation();
+  const started = performance.now();
+  const duration = 180;
+  const startCamera = camera;
+
+  const tick = (time: number): void => {
+    const progress = clamp((time - started) / duration, 0, 1);
+    const eased = 1 - (1 - progress) ** 3;
+
+    camera = {
+      ...startCamera,
+      x: startCamera.x + deltaX * eased,
+      y: startCamera.y + deltaY * eased,
+    };
+    applyCamera();
+
+    if (progress < 1) {
+      cameraAnimationId = requestAnimationFrame(tick);
+    } else {
+      cameraAnimationId = null;
+    }
+  };
+
+  cameraAnimationId = requestAnimationFrame(tick);
+}
+
+function cancelCameraAnimation(): void {
+  if (cameraAnimationId === null) return;
+
+  cancelAnimationFrame(cameraAnimationId);
+  cameraAnimationId = null;
+}
+
+function selectNodeAndFocus(id: string): void {
+  selectNode(id);
+  focusNode(id, { scrollIntoView: true });
+}
+
 function selectNode(id: string, measure = true): void {
   if (!tree.hasNode(id)) return;
 
@@ -825,18 +1027,21 @@ function selectNode(id: string, measure = true): void {
   if (measure) demoStore.selectTime = formatMs(performance.now() - started);
 }
 
-function refreshView(preferredInspectorId: string | null): void {
+function refreshView(preferredInspectorId: string | null, structureChanged = false): void {
+  if (structureChanged) minimapStructureDirty = true;
+
   layout = createVisibleLayout();
   syncMap(layout);
-  applySelectionClasses();
 
   const nextInspectorId = getInspectableId(preferredInspectorId);
+  applySelectionClasses(nextInspectorId);
   if (nextInspectorId) {
     renderInspector(nextInspectorId);
   } else {
     renderEmptyInspector();
   }
   updateMetrics();
+  syncMinimap(nextInspectorId);
 }
 
 function getInspectableId(preferredId: string | null): string | null {
@@ -891,7 +1096,7 @@ function addVersion(): void {
     role: reference.value.role,
     turn: reference.value.turn,
   });
-  refreshView(id);
+  refreshView(id, true);
   demoStore.selectTime = formatMs(performance.now() - started);
 }
 
@@ -902,8 +1107,7 @@ function addChild(): void {
   if (!parent) return;
 
   const started = performance.now();
-  const state = tree.getState();
-  const siblingIndex = state.nodes[inspectorNodeId]?.childrenIds.length ?? 0;
+  const siblingIndex = tree.getChildren(inspectorNodeId).length;
   const depth = parent.depth + 1;
   const id = createGeneratedId();
 
@@ -911,7 +1115,7 @@ function addChild(): void {
     inspectorNodeId,
     createGeneratedMessage(id, depth, siblingIndex, siblingIndex + 1),
   );
-  refreshView(id);
+  refreshView(id, true);
   demoStore.selectTime = formatMs(performance.now() - started);
 }
 
@@ -947,7 +1151,7 @@ function mutateTree(mutator: () => boolean, preferredInspectorId: string | null)
   const started = performance.now();
   if (!mutator()) return;
 
-  refreshView(preferredInspectorId);
+  refreshView(preferredInspectorId, true);
   demoStore.selectTime = formatMs(performance.now() - started);
 }
 
@@ -978,30 +1182,30 @@ function createGeneratedMessage(
   );
 }
 
-function applySelectionClasses(): void {
-  const nextNodeIds = new Set(tree.selectedPath.map((value) => value.id));
-  const nextEdgeIds = new Set<string>();
-  const path = tree.selectedPath;
-
-  for (let index = 1; index < path.length; index++) {
-    const parent = path[index - 1];
-    const child = path[index];
-    if (parent && child) nextEdgeIds.add(createEdgeId(parent.id, child.id));
-  }
-
-  const nextHeadId = path.at(-1)?.id ?? null;
-
+function applySelectionClasses(nextHighlightedNodeId: string | null): void {
+  const nextNodeIds = new Set(layout.nodes.filter((node) => node.selected).map((node) => node.id));
+  const nextEdgeIds = new Set(layout.edges.filter((edge) => edge.selected).map((edge) => edge.id));
   toggleClasses(nodeElements, selectedNodeIds, nextNodeIds, "is-selected");
   toggleClasses(edgeElements, selectedEdgeIds, nextEdgeIds, "is-selected");
+  bringEdgesToFront(nextEdgeIds);
 
-  if (selectedHeadId && selectedHeadId !== nextHeadId) {
-    nodeElements.get(selectedHeadId)?.classList.remove("is-head");
+  if (highlightedNodeId && highlightedNodeId !== nextHighlightedNodeId) {
+    nodeElements.get(highlightedNodeId)?.classList.remove("is-head");
   }
-  if (nextHeadId) nodeElements.get(nextHeadId)?.classList.add("is-head");
+  if (nextHighlightedNodeId) nodeElements.get(nextHighlightedNodeId)?.classList.add("is-head");
 
   selectedNodeIds = nextNodeIds;
   selectedEdgeIds = nextEdgeIds;
-  selectedHeadId = nextHeadId;
+  highlightedNodeId = nextHighlightedNodeId;
+}
+
+function bringEdgesToFront(edgeIds: Set<string>): void {
+  if (!edgeLayer) return;
+
+  for (const edgeId of edgeIds) {
+    const edge = edgeElements.get(edgeId);
+    if (edge) edgeLayer.append(edge);
+  }
 }
 
 function renderInspector(id: string): void {
@@ -1081,10 +1285,180 @@ function updateMetrics(): void {
   demoStore.summary = `${layout.messageCount} messages · ${layout.branchCount} branch points · depth ${layout.maxDepth}`;
 }
 
+type MinimapPlacement = {
+  xById: Map<string, number>;
+  depthById: Map<string, number>;
+  maxX: number;
+  maxDepth: number;
+};
+
+function placeMinimapNodes(
+  nodes: Readonly<Record<string, BranchingTreeNode<DemoMessage>>>,
+  rootId: string,
+): MinimapPlacement {
+  const xById = new Map<string, number>();
+  const depthById = new Map<string, number>();
+  let leafCursor = 0;
+  let maxDepth = 0;
+
+  const assign = (id: string, depth: number): void => {
+    depthById.set(id, depth);
+    if (depth > maxDepth) maxDepth = depth;
+
+    const childIds = nodes[id]?.childrenIds ?? [];
+    if (childIds.length === 0) {
+      xById.set(id, leafCursor);
+      leafCursor += 1;
+      return;
+    }
+
+    let sum = 0;
+    for (const childId of childIds) {
+      assign(childId, depth + 1);
+      sum += xById.get(childId) ?? 0;
+    }
+    xById.set(id, sum / childIds.length);
+  };
+  assign(rootId, -1);
+
+  return { xById, depthById, maxX: Math.max(0, leafCursor - 1), maxDepth };
+}
+
+function syncMinimap(headId: string | null): void {
+  if (minimapStructureDirty) {
+    renderMinimapTopology();
+    minimapStructureDirty = false;
+  }
+
+  syncMinimapSelection(headId);
+  updateMinimapPosition();
+}
+
+function renderMinimapTopology(): void {
+  if (!minimapSvg) return;
+
+  const state = tree.getState();
+  const nodeIds = Object.keys(state.nodes).filter((id) => id !== state.rootId);
+  minimapDotElements = new Map();
+  minimapEdgeElements = new Map();
+  minimapActiveNodeIds = new Set();
+  minimapActiveEdgeIds = new Set();
+  minimapHeadId = null;
+
+  minimapSvg.setAttribute("width", String(MINIMAP_WIDTH));
+  minimapSvg.setAttribute("height", String(MINIMAP_HEIGHT));
+  minimapSvg.setAttribute("viewBox", `0 0 ${MINIMAP_WIDTH} ${MINIMAP_HEIGHT}`);
+  minimapCount.textContent = `${nodeIds.length} messages`;
+
+  const placement = placeMinimapNodes(state.nodes, state.rootId);
+  const innerWidth = MINIMAP_WIDTH - MINIMAP_PADDING * 2;
+  const innerHeight = MINIMAP_HEIGHT - MINIMAP_PADDING * 2;
+  const px = (id: string): number =>
+    placement.maxX > 0
+      ? MINIMAP_PADDING + ((placement.xById.get(id) ?? 0) / placement.maxX) * innerWidth
+      : MINIMAP_WIDTH / 2;
+  const py = (id: string): number =>
+    placement.maxDepth > 0
+      ? MINIMAP_PADDING + ((placement.depthById.get(id) ?? 0) / placement.maxDepth) * innerHeight
+      : MINIMAP_HEIGHT / 2;
+
+  const edgeLayer = svgElement("g");
+  const dotLayer = svgElement("g");
+  minimapSvg.replaceChildren(edgeLayer, dotLayer);
+
+  for (const id of nodeIds) {
+    const parentId = state.nodes[id]?.parentId;
+    if (!parentId || parentId === state.rootId) continue;
+
+    const line = svgElement("line");
+    const edgeId = BranchingTree.createEdgeId(parentId, id);
+    line.setAttribute("class", "minimap-edge");
+    line.setAttribute("x1", String(px(parentId)));
+    line.setAttribute("y1", String(py(parentId)));
+    line.setAttribute("x2", String(px(id)));
+    line.setAttribute("y2", String(py(id)));
+    line.dataset.id = edgeId;
+    minimapEdgeElements.set(edgeId, line);
+    edgeLayer.append(line);
+  }
+
+  for (const id of nodeIds) {
+    const role = state.nodes[id]?.value?.role ?? "user";
+    const dot = svgElement("circle");
+    dot.setAttribute("class", `minimap-dot role-${role}`);
+    dot.setAttribute("cx", String(px(id)));
+    dot.setAttribute("cy", String(py(id)));
+    dot.setAttribute("r", String(MINIMAP_DOT));
+    dot.dataset.id = id;
+    minimapDotElements.set(id, dot);
+    dotLayer.append(dot);
+  }
+}
+
+function syncMinimapSelection(headId: string | null): void {
+  const nextNodeIds = new Set(tree.selectedPathEntries.map((entry) => entry.nodeId));
+  const nextEdgeIds = new Set<string>();
+  const entries = tree.selectedPathEntries;
+
+  for (let index = 1; index < entries.length; index++) {
+    const parent = entries[index - 1];
+    const child = entries[index];
+    if (parent && child) nextEdgeIds.add(BranchingTree.createEdgeId(parent.nodeId, child.nodeId));
+  }
+
+  for (const id of minimapActiveNodeIds) {
+    if (nextNodeIds.has(id)) continue;
+
+    const dot = minimapDotElements.get(id);
+    dot?.classList.remove("is-active");
+    dot?.setAttribute("r", String(MINIMAP_DOT));
+  }
+
+  for (const id of nextNodeIds) {
+    if (minimapActiveNodeIds.has(id)) continue;
+
+    const dot = minimapDotElements.get(id);
+    dot?.classList.add("is-active");
+    dot?.setAttribute("r", String(MINIMAP_DOT_ACTIVE));
+  }
+
+  toggleClasses(minimapEdgeElements, minimapActiveEdgeIds, nextEdgeIds, "is-selected");
+
+  if (minimapHeadId && minimapHeadId !== headId) {
+    minimapDotElements.get(minimapHeadId)?.classList.remove("is-head");
+  }
+  if (headId) minimapDotElements.get(headId)?.classList.add("is-head");
+
+  minimapActiveNodeIds = nextNodeIds;
+  minimapActiveEdgeIds = nextEdgeIds;
+  minimapHeadId = headId;
+}
+
+function setMinimapCollapsed(collapsed: boolean): void {
+  minimapCollapsed = collapsed;
+  minimap.classList.toggle("is-collapsed", collapsed);
+  minimapToggle.textContent = collapsed ? "+" : "−";
+  minimapToggle.setAttribute("aria-expanded", String(!collapsed));
+  minimapToggle.setAttribute("aria-label", collapsed ? "Expand minimap" : "Collapse minimap");
+  minimapToggle.setAttribute("title", collapsed ? "Expand minimap" : "Collapse minimap");
+  updateMinimapPosition();
+}
+
+function updateMinimapPosition(): void {
+  if (!minimap) return;
+
+  const left = mapPanel.scrollLeft + mapPanel.clientWidth - minimap.offsetWidth - MINIMAP_MARGIN;
+  const top = mapPanel.scrollTop + mapPanel.clientHeight - minimap.offsetHeight - MINIMAP_MARGIN;
+  minimap.style.transform = `translate(${Math.max(MINIMAP_MARGIN, left)}px, ${Math.max(MINIMAP_MARGIN, top)}px)`;
+}
+
 function fitMap(): void {
   const bounds = mapPanel.getBoundingClientRect();
   if (bounds.width === 0 || bounds.height === 0) return;
 
+  cancelCameraAnimation();
+  mapPanel.scrollLeft = 0;
+  mapPanel.scrollTop = 0;
   const content = getContentBounds();
   const nextScale = Math.min(
     (bounds.width - FIT_PADDING * 2) / content.width,
@@ -1114,6 +1488,39 @@ function centerCamera(
 }
 
 function getContentBounds(): ContentBounds {
+  return getRenderedContentBounds() ?? getLayoutContentBounds();
+}
+
+function getRenderedContentBounds(): ContentBounds | null {
+  if (!viewportGroup || layout.nodes.length === 0) return null;
+
+  try {
+    const box = viewportGroup.getBBox();
+    if (!isFiniteBounds(box)) return null;
+
+    return {
+      left: box.x,
+      top: box.y,
+      width: Math.max(1, box.width),
+      height: Math.max(1, box.height),
+    };
+  } catch {
+    return null;
+  }
+}
+
+function isFiniteBounds(bounds: DOMRect): boolean {
+  return (
+    Number.isFinite(bounds.x) &&
+    Number.isFinite(bounds.y) &&
+    Number.isFinite(bounds.width) &&
+    Number.isFinite(bounds.height) &&
+    bounds.width > 0 &&
+    bounds.height > 0
+  );
+}
+
+function getLayoutContentBounds(): ContentBounds {
   if (layout.nodes.length === 0) return { left: 0, top: 0, width: 1, height: 1 };
 
   let left = Infinity;
@@ -1145,6 +1552,7 @@ function zoomAt(clientX: number, clientY: number, factor: number): void {
   const nextScale = clamp(camera.scale * factor, MIN_ZOOM, MAX_ZOOM);
   if (nextScale === camera.scale) return;
 
+  cancelCameraAnimation();
   const bounds = mapPanel.getBoundingClientRect();
   const pointX = mapPanel.scrollLeft + clientX - bounds.left;
   const pointY = mapPanel.scrollTop + clientY - bounds.top;
@@ -1168,16 +1576,22 @@ function applyCamera(): void {
     "transform",
     `translate(${CANVAS_PADDING + camera.x} ${CANVAS_PADDING + camera.y}) scale(${camera.scale})`,
   );
+  updateMinimapPosition();
 }
 
 function getCanvasSize(): CanvasSize {
   const bounds = mapPanel.getBoundingClientRect();
-  const contentWidth = layout.width * camera.scale + CANVAS_PADDING * 2;
-  const contentHeight = layout.height * camera.scale + CANVAS_PADDING * 2;
+  const content = getContentBounds();
+  const transformedRight =
+    CANVAS_PADDING + camera.x + (content.left + content.width) * camera.scale + CANVAS_PADDING;
+  const transformedBottom =
+    CANVAS_PADDING + camera.y + (content.top + content.height) * camera.scale + CANVAS_PADDING;
+  const visibleRight = mapPanel.scrollLeft + bounds.width;
+  const visibleBottom = mapPanel.scrollTop + bounds.height;
 
   return {
-    width: Math.max(bounds.width, contentWidth),
-    height: Math.max(bounds.height, contentHeight),
+    width: Math.max(bounds.width, visibleRight, transformedRight),
+    height: Math.max(bounds.height, visibleBottom, transformedBottom),
   };
 }
 
@@ -1198,6 +1612,7 @@ function handleDoubleClickZoom(event: MouseEvent): void {
 }
 
 function panBy(deltaX: number, deltaY: number): void {
+  cancelCameraAnimation();
   camera = {
     ...camera,
     x: camera.x + deltaX,
@@ -1218,7 +1633,9 @@ function finishDrag(event: PointerEvent): void {
   dragState = null;
 
   suppressNextClick = moved || nodeId !== null;
-  if (!moved && nodeId) selectNode(nodeId);
+  if (!moved && nodeId) {
+    selectNodeAndFocus(nodeId);
+  }
 }
 
 function createEdgePath(parent: PositionedNode, child: PositionedNode): string {
@@ -1226,9 +1643,43 @@ function createEdgePath(parent: PositionedNode, child: PositionedNode): string {
   const startY = parent.y + NODE_HEIGHT / 2;
   const endX = child.x;
   const endY = child.y - NODE_HEIGHT / 2;
-  const distance = Math.max(32, endY - startY);
+  const deltaX = endX - startX;
+  const deltaY = endY - startY;
+  if (deltaX === 0) return `M ${startX} ${startY} L ${endX} ${endY}`;
 
-  return `M ${startX} ${startY} C ${startX} ${startY + distance * 0.4}, ${endX} ${endY - distance * 0.4}, ${endX} ${endY}`;
+  const railY = getEdgeRailY(startY, endY);
+  if (isInteriorSibling(child)) {
+    return [
+      `M ${startX} ${startY}`,
+      `L ${startX} ${railY}`,
+      `L ${endX} ${railY}`,
+      `L ${endX} ${endY}`,
+    ].join(" ");
+  }
+
+  const radius = Math.min(10, Math.abs(deltaX) / 2, Math.abs(endY - railY) / 3);
+  const directionX = Math.sign(deltaX);
+  const directionY = Math.sign(deltaY) || 1;
+  const secondCornerStartX = endX - radius * directionX;
+  const secondCornerEndY = railY + radius * directionY;
+
+  return [
+    `M ${startX} ${startY}`,
+    `L ${startX} ${railY}`,
+    `L ${secondCornerStartX} ${railY}`,
+    `Q ${endX} ${railY} ${endX} ${secondCornerEndY}`,
+    `L ${endX} ${endY}`,
+  ].join(" ");
+}
+
+function isInteriorSibling(node: PositionedNode): boolean {
+  return node.siblingIndex > 0 && node.siblingIndex < node.siblingCount - 1;
+}
+
+function getEdgeRailY(startY: number, endY: number): number {
+  const centeredY = startY + (endY - startY) * 0.5;
+  const belowBadgeY = startY + CHILD_INDICATOR_DEPTH + EDGE_BADGE_CLEARANCE;
+  return Math.min(Math.max(centeredY, belowBadgeY), endY - EDGE_BADGE_CLEARANCE);
 }
 
 function createRootNode(): BranchingTreeNode<DemoMessage> {
@@ -1268,10 +1719,6 @@ function toggleClasses<T extends Element>(
   for (const id of nextIds) {
     if (!previousIds.has(id)) elements.get(id)?.classList.add(className);
   }
-}
-
-function createEdgeId(parentId: string, childId: string): string {
-  return `${parentId}->${childId}`;
 }
 
 function getNodeElement(target: EventTarget | null): SVGGElement | null {
