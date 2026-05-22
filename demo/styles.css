@@ -22,6 +22,11 @@
   --selected-user-overlay: 35 92% 45%;
   --selected-assistant-overlay: 184 74% 34%;
   --edge: 214.3 31.8% 86%;
+  --path-edge: 173 80% 32%;
+  --quote-fill: 248 38% 96%;
+  --quote-foreground: 245 7% 36%;
+  --quote-stroke: 245 5% 24%;
+  --quote-shadow: 0 0% 0%;
   --radius: 8px;
   font-family:
     Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
@@ -54,6 +59,11 @@
     --selected-user-overlay: 38 84% 34%;
     --selected-assistant-overlay: 184 66% 31%;
     --edge: 218 26% 24%;
+    --path-edge: 172 66% 50%;
+    --quote-fill: 245 19% 19%;
+    --quote-foreground: 245 18% 82%;
+    --quote-stroke: 220 14% 78%;
+    --quote-shadow: 0 0% 0%;
   }
 }
 
@@ -85,38 +95,43 @@ button {
   height: 100%;
   min-height: 0;
   display: grid;
-  grid-template-rows: auto auto minmax(0, 1fr);
+  grid-template-rows: auto minmax(0, 1fr);
   overflow: hidden;
 }
 
+.demo-page {
+  min-height: 0;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  overflow: hidden;
+}
+
+.demo-page.is-exploration-demo {
+  --path-edge: 0 0% 7%;
+}
+
+@media (prefers-color-scheme: dark) {
+  .demo-page.is-exploration-demo {
+    --path-edge: 172 66% 50%;
+  }
+}
+
 .topbar {
-  min-height: 72px;
-  display: flex;
+  min-height: 88px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
-  justify-content: space-between;
   gap: 24px;
   padding: 16px 20px;
   border-bottom: 1px solid hsl(var(--border));
   background: hsl(var(--card));
 }
 
-.brand-block {
+.topbar-left {
   min-width: 0;
-}
-
-.brand-block h1 {
-  margin: 0;
-  font-size: 20px;
-  line-height: 1.2;
-  font-weight: 650;
-  letter-spacing: 0;
-}
-
-.brand-block p {
-  margin: 4px 0 0;
-  color: hsl(var(--muted-foreground));
-  font-size: 13px;
-  line-height: 1.4;
+  display: flex;
+  align-items: center;
+  gap: 16px;
 }
 
 .toolbar {
@@ -134,6 +149,42 @@ button {
   border-radius: var(--radius);
   overflow: hidden;
   background: hsl(var(--muted));
+}
+
+.demo-picker {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: hsl(var(--muted-foreground));
+  font-size: 11px;
+  line-height: 1.2;
+  font-weight: 650;
+}
+
+.demo-picker select {
+  width: 176px;
+  height: 30px;
+  padding: 0 28px 0 9px;
+  border: 1px solid hsl(var(--border));
+  border-radius: var(--radius);
+  background: hsl(var(--background));
+  color: hsl(var(--foreground));
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.demo-summary {
+  min-width: 0;
+  margin: 0;
+  color: hsl(var(--muted-foreground));
+  font-size: 13px;
+  line-height: 1.4;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .segment-button,
@@ -169,20 +220,12 @@ button {
   line-height: 1;
 }
 
-.segment-button:hover,
-.icon-button:hover {
-  background: hsl(var(--accent));
-}
-
-.segment-button.is-active:hover {
-  background: hsl(var(--primary));
-}
-
 .segment-button:focus-visible,
 .icon-button:focus-visible,
 .action-button:focus-visible,
 .version-button:focus-visible,
 .path-button:focus-visible,
+.demo-picker select:focus-visible,
 .minimap-toggle:focus-visible {
   outline: 2px solid hsl(var(--ring));
   outline-offset: 2px;
@@ -275,11 +318,11 @@ body.is-map-dragging {
   stroke-linecap: round;
   stroke-linejoin: round;
   stroke-width: 1.35;
-  vector-effect: non-scaling-stroke;
 }
 
 .tree-edge.is-selected {
-  stroke: hsl(var(--primary));
+  stroke: hsl(var(--path-edge));
+  stroke-linecap: butt;
   stroke-width: 3.2;
 }
 
@@ -290,8 +333,7 @@ body.is-map-dragging {
 }
 
 .tree-node.is-selected,
-.tree-node:focus-visible,
-.map-panel:not(.is-keyboard-mode) .tree-node:hover {
+.tree-node:focus-visible {
   opacity: 1;
 }
 
@@ -300,7 +342,6 @@ body.is-map-dragging {
   fill: hsl(var(--card));
   stroke: hsl(var(--border));
   stroke-width: 1.2;
-  vector-effect: non-scaling-stroke;
 }
 
 .tree-node.role-user .node-card {
@@ -313,9 +354,39 @@ body.is-map-dragging {
   stroke: hsl(var(--chart-assistant));
 }
 
+.demo-page.is-exploration-demo .tree-node.role-assistant .node-card {
+  stroke-dasharray: none;
+}
+
+.tree-node.is-query {
+  opacity: 1;
+}
+
+.tree-node.is-query .node-card {
+  fill: hsl(var(--card));
+  stroke: hsl(var(--quote-stroke));
+  stroke-width: 1.35;
+  stroke-dasharray: none;
+  vector-effect: none;
+}
+
+.tree-node.is-query.is-selected .node-card {
+  stroke-width: 1.5;
+}
+
+.node-quote-shadow {
+  fill: hsl(var(--quote-shadow) / 0.16);
+  stroke: none;
+  pointer-events: none;
+}
+
 .node-selection-ring {
   opacity: 0;
   stroke: none;
+}
+
+.tree-node.is-query .node-selection-ring {
+  display: none;
 }
 
 .tree-node.role-user .node-selection-ring {
@@ -342,14 +413,130 @@ body.is-map-dragging {
   fill: hsl(var(--chart-assistant) / 0.24);
 }
 
-.map-panel:not(.is-keyboard-mode) .tree-node.role-user:not(.is-selected):hover .node-card,
+.demo-page.is-exploration-demo .tree-node.role-assistant .node-card,
+.demo-page.is-exploration-demo .tree-node.role-assistant.is-selected .node-card,
+.demo-page.is-exploration-demo
+  .tree-node.role-assistant:not(.is-selected):focus-visible
+  .node-card {
+  fill: white;
+  stroke: black;
+}
+
+@media (prefers-color-scheme: dark) {
+  .demo-page.is-exploration-demo .tree-node.role-assistant .node-card,
+  .demo-page.is-exploration-demo .tree-node.role-assistant.is-selected .node-card,
+  .demo-page.is-exploration-demo
+    .tree-node.role-assistant:not(.is-selected):focus-visible
+    .node-card {
+    fill: hsl(0 0% 100%);
+    stroke: hsl(0 0% 0%);
+  }
+}
+
+.tree-node.is-generating .node-card {
+  fill: hsl(210 32% 96%);
+}
+
+.answer-shimmer {
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.answer-shimmer-surface {
+  display: flex;
+  width: 100%;
+  height: 100%;
+  flex-direction: column;
+  justify-content: center;
+  gap: 8px;
+}
+
+.answer-shimmer-line {
+  display: block;
+  height: 10px;
+  border-radius: 999px;
+  background: linear-gradient(
+    100deg,
+    hsl(214 20% 88%) 0%,
+    hsl(214 20% 88%) 30%,
+    hsl(0 0% 100%) 45%,
+    hsl(214 20% 88%) 60%,
+    hsl(214 20% 88%) 100%
+  );
+  background-size: 220% 100%;
+  animation: answer-shimmer 2s linear infinite;
+}
+
+.answer-shimmer-line.is-full {
+  width: 100%;
+}
+
+.answer-shimmer-line.is-wide {
+  width: 86%;
+}
+
+.answer-shimmer-line.is-mid {
+  width: 68%;
+}
+
+.answer-shimmer-line.is-short {
+  width: 48%;
+}
+
+.tree-node.is-query .node-card,
+.tree-node.is-query.is-selected .node-card {
+  fill: hsl(var(--card));
+  stroke-width: 1.35;
+  vector-effect: none;
+}
+
+.tree-node.is-query.is-selected .node-card {
+  stroke-width: 1.5;
+}
+
 .tree-node.role-user:not(.is-selected):focus-visible .node-card {
   fill: hsl(var(--chart-user) / 0.17);
 }
 
-.map-panel:not(.is-keyboard-mode) .tree-node.role-assistant:not(.is-selected):hover .node-card,
 .tree-node.role-assistant:not(.is-selected):focus-visible .node-card {
   fill: hsl(var(--chart-assistant) / 0.17);
+}
+
+.demo-page.is-exploration-demo
+  .tree-node.role-assistant:not(.is-selected):focus-visible
+  .node-card {
+  fill: white;
+  stroke: black;
+}
+
+.demo-page.is-exploration-demo .tree-node.is-query:not(.is-selected):not(.is-head) .node-card,
+.demo-page.is-exploration-demo
+  .tree-node.is-query:not(.is-selected):not(.is-head):focus-visible
+  .node-card {
+  fill: white;
+  stroke: hsl(var(--quote-stroke));
+}
+
+.demo-page.is-exploration-demo .tree-node.is-head .node-card,
+.demo-page.is-exploration-demo .tree-node.role-assistant.is-head .node-card,
+.demo-page.is-exploration-demo .tree-node.is-query.is-head .node-card {
+  fill: hsl(var(--quote-fill));
+}
+
+.demo-page.is-exploration-demo .tree-node.is-selected:not(.is-head).role-assistant .node-card {
+  fill: white;
+}
+
+.demo-page.is-exploration-demo .tree-node.is-selected:not(.is-head).is-query .node-card {
+  fill: white;
+}
+
+.demo-page.is-exploration-demo .tree-node.is-selected .node-card {
+  stroke-width: 2.8;
+}
+
+.demo-page.is-exploration-demo .tree-node.is-head:focus-visible .node-card {
+  fill: hsl(var(--quote-fill));
 }
 
 .node-role,
@@ -377,6 +564,44 @@ body.is-map-dragging {
   fill: hsl(var(--muted-foreground));
 }
 
+.node-quote-label {
+  font-size: 15px;
+  font-weight: 430;
+  dominant-baseline: alphabetic;
+  fill: hsl(var(--quote-foreground));
+}
+
+.query-editor {
+  overflow: visible;
+}
+
+.query-input {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  outline: 0;
+  resize: none;
+  overflow: hidden;
+  box-shadow: none;
+  background: transparent;
+  color: hsl(var(--quote-foreground));
+  font:
+    430 15px / 18px Inter,
+    ui-sans-serif,
+    system-ui,
+    sans-serif;
+  text-align: center;
+}
+
+.query-input::placeholder {
+  color: hsl(var(--quote-foreground) / 0.62);
+}
+
 .node-child-badge,
 .node-child-link {
   pointer-events: none;
@@ -386,14 +611,12 @@ body.is-map-dragging {
   stroke: hsl(var(--edge));
   stroke-linecap: round;
   stroke-width: 1.35;
-  vector-effect: non-scaling-stroke;
 }
 
 .node-child-dot {
   fill: hsl(var(--background));
   stroke: hsl(var(--edge));
   stroke-width: 1.2;
-  vector-effect: non-scaling-stroke;
 }
 
 .node-child-badge.role-user .node-child-dot {
@@ -404,6 +627,11 @@ body.is-map-dragging {
 .node-child-badge.role-assistant .node-child-dot {
   fill: hsl(var(--background));
   stroke: hsl(var(--chart-assistant));
+}
+
+.demo-page.is-exploration-demo .node-child-badge .node-child-dot {
+  fill: white;
+  stroke: hsl(var(--quote-stroke));
 }
 
 .node-child-count {
@@ -428,7 +656,6 @@ body.is-map-dragging {
   cursor: default;
 }
 
-.minimap:hover,
 .minimap:focus-within {
   background-color: hsl(var(--card) / 0.82);
 }
@@ -500,10 +727,6 @@ body.is-map-dragging {
   opacity: 1;
 }
 
-.minimap-toggle:hover {
-  background: hsl(var(--accent) / 0.8);
-}
-
 #minimap-svg {
   display: block;
 }
@@ -519,7 +742,7 @@ body.is-map-dragging {
 }
 
 .minimap-edge.is-selected {
-  stroke: hsl(var(--primary));
+  stroke: hsl(var(--path-edge));
   stroke-width: 1.8;
 }
 
@@ -543,11 +766,6 @@ body.is-map-dragging {
 
 .minimap-dot.is-active.role-assistant {
   fill: hsl(var(--chart-assistant));
-}
-
-.minimap-dot:hover {
-  stroke: hsl(var(--foreground));
-  stroke-width: 1.5;
 }
 
 .minimap-dot.is-head {
@@ -657,12 +875,6 @@ body.is-map-dragging {
   padding: 8px 10px;
 }
 
-.action-button:hover:not(:disabled),
-.version-button:hover,
-.path-button:hover {
-  background: hsl(var(--accent));
-}
-
 .version-button.is-selected {
   border-color: hsl(var(--primary));
   background: hsl(var(--primary) / 0.12);
@@ -721,6 +933,16 @@ body.is-map-dragging {
   font-size: 13px;
 }
 
+@keyframes answer-shimmer {
+  from {
+    background-position: 220% 0;
+  }
+
+  to {
+    background-position: -220% 0;
+  }
+}
+
 @media (max-width: 920px) {
   .topbar {
     align-items: flex-start;
@@ -730,6 +952,13 @@ body.is-map-dragging {
   .toolbar {
     width: 100%;
     justify-content: flex-start;
+  }
+
+  .topbar-left {
+    width: 100%;
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 8px;
   }
 
   .metrics {

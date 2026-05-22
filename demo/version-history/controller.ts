@@ -8,7 +8,8 @@ import {
   type BranchingTreeTopologyEdge,
   type BranchingTreeTopologyNode,
   type Identified,
-} from "../branching-tree";
+} from "../../branching-tree";
+import { setShellSummary } from "../shared/shell-store";
 import { setDemoActions } from "./actions";
 import demoStore, { type DemoSize } from "./store";
 
@@ -176,10 +177,13 @@ let resizeAnimationId: number | null = null;
 let minimapStructureDirty = true;
 let minimapCollapsed = false;
 let demoStarted = false;
+let resizeHandler: (() => void) | null = null;
 
-export function startDemo(): void {
-  if (demoStarted) return;
+export function startDemo(): () => void {
+  if (demoStarted) return stopDemo;
   demoStarted = true;
+  setShellSummary("Loading map");
+  minimapCollapsed = false;
 
   svg = mustElement<SVGSVGElement>("tree-map");
   mapPanel = mustElement<HTMLElement>("map-panel");
@@ -230,7 +234,7 @@ export function startDemo(): void {
     const node = getNodeElement(event.target);
     const id = node?.dataset.id;
     if (id) {
-      selectNodeAndFocus(id);
+      selectNodeAndFocus(id, { scrollIntoView: true });
     }
   });
 
@@ -242,7 +246,7 @@ export function startDemo(): void {
     if (event.key === "Enter" || event.key === " ") {
       event.preventDefault();
       enableKeyboardHoverSuppression();
-      selectNodeAndFocus(id);
+      selectNodeAndFocus(id, { scrollIntoView: true });
       return;
     }
 
@@ -251,7 +255,7 @@ export function startDemo(): void {
 
     event.preventDefault();
     enableKeyboardHoverSuppression();
-    selectNodeAndFocus(targetId);
+    selectNodeAndFocus(targetId, { scrollIntoView: true });
   });
 
   mapPanel.addEventListener("pointerdown", (event) => {
@@ -304,7 +308,8 @@ export function startDemo(): void {
   mapPanel.addEventListener("dragstart", (event) => event.preventDefault());
   mapPanel.addEventListener("selectstart", (event) => event.preventDefault());
   mapPanel.addEventListener("wheel", (event) => handleWheel(event), { passive: false });
-  window.addEventListener("resize", () => scheduleViewportResize());
+  resizeHandler = () => scheduleViewportResize();
+  window.addEventListener("resize", resizeHandler);
 
   mapPanel.addEventListener("scroll", () => updateMinimapPosition());
   minimap.addEventListener("pointerdown", (event) => event.stopPropagation());
@@ -320,6 +325,25 @@ export function startDemo(): void {
   });
 
   loadTree(DEFAULT_SIZE);
+  return stopDemo;
+}
+
+function stopDemo(): void {
+  if (!demoStarted) return;
+
+  demoStarted = false;
+  cancelCameraAnimation();
+  if (resizeAnimationId !== null) {
+    cancelAnimationFrame(resizeAnimationId);
+    resizeAnimationId = null;
+  }
+  if (resizeHandler) {
+    window.removeEventListener("resize", resizeHandler);
+    resizeHandler = null;
+  }
+  mapPanel?.classList.remove("is-dragging", "is-keyboard-mode");
+  document.body.classList.remove("is-map-dragging");
+  dragState = null;
 }
 
 function enableKeyboardHoverSuppression(): void {
@@ -737,7 +761,7 @@ function appendNodeElement(node: PositionedNode): void {
       return;
     }
 
-    selectNodeAndFocus(node.id);
+    selectNodeAndFocus(node.id, { scrollIntoView: true });
   });
 
   rect.setAttribute("class", "node-card");
@@ -953,7 +977,7 @@ function focusNode(id: string, options: { scrollIntoView?: boolean } = {}): void
 }
 
 function smoothScrollNodeIntoView(element: SVGGElement): void {
-  const nodeBounds = element.getBoundingClientRect();
+  const nodeBounds = getNodeVisualBounds(element);
   const panelBounds = mapPanel.getBoundingClientRect();
   let deltaX = 0;
   let deltaY = 0;
@@ -1028,9 +1052,9 @@ function cancelCameraAnimation(): void {
   cameraAnimationId = null;
 }
 
-function selectNodeAndFocus(id: string): void {
+function selectNodeAndFocus(id: string, options: { scrollIntoView?: boolean } = {}): void {
   selectNode(id);
-  focusNode(id, { scrollIntoView: true });
+  focusNode(id, options);
 }
 
 function selectNode(id: string, measure = true): void {
@@ -1299,6 +1323,7 @@ function updateMetrics(): void {
   demoStore.edgeCount = String(layout.linkCount);
   demoStore.pathCount = String(tree.selectedPath.length);
   demoStore.summary = `${layout.messageCount} messages · ${layout.branchCount} branch points · depth ${layout.maxDepth}`;
+  setShellSummary(demoStore.summary);
 }
 
 type MinimapPlacement = {
@@ -1514,36 +1539,7 @@ function centerCamera(
 }
 
 function getContentBounds(): ContentBounds {
-  return getRenderedContentBounds() ?? getLayoutContentBounds();
-}
-
-function getRenderedContentBounds(): ContentBounds | null {
-  if (!viewportGroup || layout.nodes.length === 0) return null;
-
-  try {
-    const box = viewportGroup.getBBox();
-    if (!isFiniteBounds(box)) return null;
-
-    return {
-      left: box.x,
-      top: box.y,
-      width: Math.max(1, box.width),
-      height: Math.max(1, box.height),
-    };
-  } catch {
-    return null;
-  }
-}
-
-function isFiniteBounds(bounds: DOMRect): boolean {
-  return (
-    Number.isFinite(bounds.x) &&
-    Number.isFinite(bounds.y) &&
-    Number.isFinite(bounds.width) &&
-    Number.isFinite(bounds.height) &&
-    bounds.width > 0 &&
-    bounds.height > 0
-  );
+  return getLayoutContentBounds();
 }
 
 function getLayoutContentBounds(): ContentBounds {
@@ -1672,7 +1668,7 @@ function finishDrag(event: PointerEvent): void {
 
   suppressNextClick = moved || nodeId !== null;
   if (!moved && nodeId) {
-    selectNodeAndFocus(nodeId);
+    selectNodeAndFocus(nodeId, { scrollIntoView: true });
   }
 }
 
@@ -1792,6 +1788,13 @@ function toggleClasses<T extends Element>(
 
 function getNodeElement(target: EventTarget | null): SVGGElement | null {
   return target instanceof Element ? target.closest<SVGGElement>(".tree-node") : null;
+}
+
+function getNodeVisualBounds(element: SVGGElement): DOMRect {
+  return (
+    element.querySelector<SVGRectElement>(".node-card")?.getBoundingClientRect() ??
+    element.getBoundingClientRect()
+  );
 }
 
 function svgElement<K extends keyof SVGElementTagNameMap>(tagName: K): SVGElementTagNameMap[K] {

@@ -1,51 +1,54 @@
 import { html, type ArrowTemplate } from "@arrow-js/core";
+import type { DemoCleanup, DemoMountRoots } from "../shared/page";
 import { demoActions } from "./actions";
+import { startDemo } from "./controller";
 import demoStore, { type DemoPathView, type DemoSiblingView, type DemoSize } from "./store";
 
 const sizes: DemoSize[] = [128, 256, 512];
 
-export default function DemoApp(): ArrowTemplate {
-  return html`
-    <main class="app-shell">
-      <header class="topbar">
-        <div class="brand-block">
-          <h1>Branching tree</h1>
-          <p>${() => demoStore.summary}</p>
-        </div>
-        <div class="toolbar" aria-label="Map controls">
-          <div class="segmented" aria-label="Tree size">
-            ${sizes.map((size) => SizeButton(size).key(size))}
-          </div>
-          <button
-            type="button"
-            class="icon-button"
-            title="Fit map"
-            aria-label="Fit map"
-            @click="${demoActions.fitMap}"
-          >
-            ⌖
-          </button>
-          <button
-            type="button"
-            class="icon-button"
-            title="Zoom out"
-            aria-label="Zoom out"
-            @click="${demoActions.zoomOut}"
-          >
-            −
-          </button>
-          <button
-            type="button"
-            class="icon-button"
-            title="Zoom in"
-            aria-label="Zoom in"
-            @click="${demoActions.zoomIn}"
-          >
-            +
-          </button>
-        </div>
-      </header>
+export function mountDemo({ pageRoot, toolbarRoot }: DemoMountRoots): DemoCleanup {
+  VersionHistoryToolbar()(toolbarRoot);
+  VersionHistoryPage()(pageRoot);
+  return startDemo();
+}
 
+function VersionHistoryToolbar(): ArrowTemplate {
+  return html`
+    <div class="segmented" aria-label="Tree size">
+      ${sizes.map((size) => SizeButton(size).key(size))}
+    </div>
+    <button
+      type="button"
+      class="icon-button"
+      title="Fit map"
+      aria-label="Fit map"
+      @click="${demoActions.fitMap}"
+    >
+      ⌖
+    </button>
+    <button
+      type="button"
+      class="icon-button"
+      title="Zoom out"
+      aria-label="Zoom out"
+      @click="${demoActions.zoomOut}"
+    >
+      −
+    </button>
+    <button
+      type="button"
+      class="icon-button"
+      title="Zoom in"
+      aria-label="Zoom in"
+      @click="${demoActions.zoomIn}"
+    >
+      +
+    </button>
+  `;
+}
+
+function VersionHistoryPage(): ArrowTemplate {
+  return html`
       <section class="metrics" aria-label="Tree metrics">
         ${Metric("messages", () => demoStore.nodeCount)}
         ${Metric("links", () => demoStore.edgeCount)} ${Metric("active", () => demoStore.pathCount)}
@@ -188,7 +191,6 @@ export default function DemoApp(): ArrowTemplate {
           </section>
         </aside>
       </section>
-    </main>
   `;
 }
 

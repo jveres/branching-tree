@@ -6,7 +6,7 @@ import {
   type BranchingTreeState,
   type Identified,
 } from "./branching-tree";
-import { createDemoState } from "./demo/controller";
+import { createDemoState } from "./demo/version-history/controller";
 
 type Item = Identified & {
   text: string;
