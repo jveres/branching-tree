@@ -241,6 +241,7 @@ export function startDemo(): void {
 
     if (event.key === "Enter" || event.key === " ") {
       event.preventDefault();
+      enableKeyboardHoverSuppression();
       selectNodeAndFocus(id);
       return;
     }
@@ -249,12 +250,14 @@ export function startDemo(): void {
     if (!targetId) return;
 
     event.preventDefault();
+    enableKeyboardHoverSuppression();
     selectNodeAndFocus(targetId);
   });
 
   mapPanel.addEventListener("pointerdown", (event) => {
     if (event.button !== 0) return;
 
+    disableKeyboardHoverSuppression();
     event.preventDefault();
     document.body.classList.add("is-map-dragging");
 
@@ -272,6 +275,8 @@ export function startDemo(): void {
   });
 
   mapPanel.addEventListener("pointermove", (event) => {
+    disableKeyboardHoverSuppression();
+
     if (!dragState || dragState.pointerId !== event.pointerId) return;
 
     const deltaX = event.clientX - dragState.startX;
@@ -315,6 +320,14 @@ export function startDemo(): void {
   });
 
   loadTree(DEFAULT_SIZE);
+}
+
+function enableKeyboardHoverSuppression(): void {
+  mapPanel.classList.add("is-keyboard-mode");
+}
+
+function disableKeyboardHoverSuppression(): void {
+  mapPanel.classList.remove("is-keyboard-mode");
 }
 
 function loadTree(size: DemoSize): void {

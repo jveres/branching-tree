@@ -290,8 +290,8 @@ body.is-map-dragging {
 }
 
 .tree-node.is-selected,
-.tree-node:hover,
-.tree-node:focus-visible {
+.tree-node:focus-visible,
+.map-panel:not(.is-keyboard-mode) .tree-node:hover {
   opacity: 1;
 }
 
@@ -342,14 +342,14 @@ body.is-map-dragging {
   fill: hsl(var(--chart-assistant) / 0.24);
 }
 
-.tree-node.role-user:hover .node-card,
-.tree-node.role-user:focus-visible .node-card {
-  fill: hsl(var(--chart-user) / 0.24);
+.map-panel:not(.is-keyboard-mode) .tree-node.role-user:not(.is-selected):hover .node-card,
+.tree-node.role-user:not(.is-selected):focus-visible .node-card {
+  fill: hsl(var(--chart-user) / 0.17);
 }
 
-.tree-node.role-assistant:hover .node-card,
-.tree-node.role-assistant:focus-visible .node-card {
-  fill: hsl(var(--chart-assistant) / 0.24);
+.map-panel:not(.is-keyboard-mode) .tree-node.role-assistant:not(.is-selected):hover .node-card,
+.tree-node.role-assistant:not(.is-selected):focus-visible .node-card {
+  fill: hsl(var(--chart-assistant) / 0.17);
 }
 
 .node-role,
