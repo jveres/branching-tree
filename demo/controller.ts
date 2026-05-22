@@ -535,7 +535,7 @@ function createVisibleLayout(): LayoutModel {
 
     const edge: PositionedEdge = {
       ...neighborhoodEdge,
-      d: createEdgePath(parent, child),
+      d: createEdgePath(parent, child, neighborhoodEdge.selected),
     };
     edges.push(edge);
     edgeIds.add(edge.id);
@@ -1650,7 +1650,7 @@ function finishDrag(event: PointerEvent): void {
   }
 }
 
-function createEdgePath(parent: PositionedNode, child: PositionedNode): string {
+function createEdgePath(parent: PositionedNode, child: PositionedNode, selected = false): string {
   const startX = parent.x;
   const startY = parent.y + NODE_HEIGHT / 2;
   const endX = child.x;
@@ -1660,13 +1660,17 @@ function createEdgePath(parent: PositionedNode, child: PositionedNode): string {
   if (deltaX === 0) return `M ${startX} ${startY} L ${endX} ${endY}`;
 
   const railY = getEdgeRailY(startY, endY);
-  if (isInteriorSibling(child)) {
+  if (!selected && isInteriorSibling(child)) {
     return [
       `M ${startX} ${startY}`,
       `L ${startX} ${railY}`,
       `L ${endX} ${railY}`,
       `L ${endX} ${endY}`,
     ].join(" ");
+  }
+
+  if (selected) {
+    return createRoundedEdgePath(startX, startY, endX, endY, railY, deltaX, deltaY);
   }
 
   const radius = Math.min(10, Math.abs(deltaX) / 2, Math.abs(endY - railY) / 3);
@@ -1678,6 +1682,33 @@ function createEdgePath(parent: PositionedNode, child: PositionedNode): string {
   return [
     `M ${startX} ${startY}`,
     `L ${startX} ${railY}`,
+    `L ${secondCornerStartX} ${railY}`,
+    `Q ${endX} ${railY} ${endX} ${secondCornerEndY}`,
+    `L ${endX} ${endY}`,
+  ].join(" ");
+}
+
+function createRoundedEdgePath(
+  startX: number,
+  startY: number,
+  endX: number,
+  endY: number,
+  railY: number,
+  deltaX: number,
+  deltaY: number,
+): string {
+  const radius = Math.min(10, Math.abs(deltaX) / 2, Math.abs(endY - railY) / 3);
+  const directionX = Math.sign(deltaX);
+  const directionY = Math.sign(deltaY) || 1;
+  const firstCornerStartY = railY - radius * directionY;
+  const firstCornerEndX = startX + radius * directionX;
+  const secondCornerStartX = endX - radius * directionX;
+  const secondCornerEndY = railY + radius * directionY;
+
+  return [
+    `M ${startX} ${startY}`,
+    `L ${startX} ${firstCornerStartY}`,
+    `Q ${startX} ${railY} ${firstCornerEndX} ${railY}`,
     `L ${secondCornerStartX} ${railY}`,
     `Q ${endX} ${railY} ${endX} ${secondCornerEndY}`,
     `L ${endX} ${endY}`,
