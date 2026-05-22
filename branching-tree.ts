@@ -52,6 +52,11 @@ export type BranchingTreePathNeighborhoodNode<T extends Identified> =
     hiddenChildCount: number;
   };
 
+export type BranchingTreeTopologyNode<T extends Identified> = BranchingTreeSiblingEntry<T> & {
+  depth: number;
+  childCount: number;
+};
+
 export type BranchingTreePathNeighborhoodEdge = {
   id: string;
   parentId: string;
@@ -59,9 +64,29 @@ export type BranchingTreePathNeighborhoodEdge = {
   selected: boolean;
 };
 
+export type BranchingTreeTopologyEdge = BranchingTreePathNeighborhoodEdge;
+
 export type BranchingTreePathNeighborhood<T extends Identified> = {
   nodes: readonly BranchingTreePathNeighborhoodNode<T>[];
   edges: readonly BranchingTreePathNeighborhoodEdge[];
+};
+
+export type BranchingTreeTopology<T extends Identified> = {
+  nodes: readonly BranchingTreeTopologyNode<T>[];
+  edges: readonly BranchingTreeTopologyEdge[];
+};
+
+export type BranchingTreePathNeighborhoodOptions = {
+  maxDepth?: number;
+  siblingWindow?: number;
+};
+
+export type BranchingTreeBranchSummary = {
+  nodeId: string;
+  descendantCount: number;
+  leafCount: number;
+  maxDepth: number;
+  branchPoints: number;
 };
 
 export type Reidentified<T extends Identified> = Omit<T, "id"> & {
@@ -300,18 +325,105 @@ export class BranchingTree<T extends Identified> {
     );
   }
 
-  public getSelectedPathNeighborhood(): BranchingTreePathNeighborhood<T> {
+  public getFullTopology(): BranchingTreeTopology<T> {
+    const selectedIds = new Set(this.selectedPathEntriesCache.map((entry) => entry.nodeId));
+    const topologyNodes: BranchingTreeTopologyNode<T>[] = [];
+    const stack = [{ id: this.rootId, depth: this.nodes[this.rootId]?.value ? 0 : -1 }];
+
+    while (stack.length > 0) {
+      const { id, depth } = stack.pop()!;
+      const node = this.nodes[id]!;
+
+      if (node.value !== undefined) {
+        topologyNodes.push({
+          ...this.createTopologyEntry(node),
+          depth,
+          childCount: node.childrenIds.length,
+          selected: selectedIds.has(id),
+        });
+      }
+
+      for (let index = node.childrenIds.length - 1; index >= 0; index--) {
+        stack.push({ id: node.childrenIds[index]!, depth: depth + 1 });
+      }
+    }
+
+    const visibleIds = new Set(topologyNodes.map((node) => node.nodeId));
+    const nodes = Object.freeze(topologyNodes.map((node) => Object.freeze(node)));
+    const edges = Object.freeze(
+      nodes
+        .filter((node) => node.parentId !== null && visibleIds.has(node.parentId))
+        .map((node) =>
+          Object.freeze({
+            id: BranchingTree.createEdgeId(node.parentId!, node.nodeId),
+            parentId: node.parentId!,
+            childId: node.nodeId,
+            selected: selectedIds.has(node.parentId!) && selectedIds.has(node.nodeId),
+          }),
+        ),
+    );
+
+    return Object.freeze({ nodes, edges });
+  }
+
+  public getBranchSummary(id: string): BranchingTreeBranchSummary | null {
+    const startNode = this.nodes[id];
+    if (!startNode) return null;
+
+    const visitedIds = new Set<string>();
+    const stack: Array<{ id: string; depth: number }> = [{ id, depth: 0 }];
+    let nodeCount = 0;
+    let leafCount = 0;
+    let maxDepth = 0;
+    let branchPoints = 0;
+
+    while (stack.length > 0) {
+      const { id: nodeId, depth } = stack.pop()!;
+      if (visitedIds.has(nodeId)) continue;
+      visitedIds.add(nodeId);
+
+      const node = this.nodes[nodeId]!;
+
+      nodeCount++;
+      maxDepth = Math.max(maxDepth, depth);
+      if (node.childrenIds.length === 0) leafCount++;
+      if (node.childrenIds.length > 1) branchPoints++;
+
+      for (const childId of node.childrenIds) {
+        stack.push({ id: childId, depth: depth + 1 });
+      }
+    }
+
+    return Object.freeze({
+      nodeId: id,
+      descendantCount: Math.max(0, nodeCount - 1),
+      leafCount,
+      maxDepth,
+      branchPoints,
+    });
+  }
+
+  public getSelectedPathNeighborhood(
+    options: BranchingTreePathNeighborhoodOptions = {},
+  ): BranchingTreePathNeighborhood<T> {
     const selectedIds = new Set(this.selectedPathEntriesCache.map((entry) => entry.nodeId));
     const visibleNodes: Array<Omit<BranchingTreePathNeighborhoodNode<T>, "hiddenChildCount">> = [];
+    const maxDepth = options.maxDepth ?? Number.POSITIVE_INFINITY;
 
     for (let depth = 0; depth < this.selectedPathEntriesCache.length; depth++) {
+      if (depth > maxDepth) break;
+
       const entry = this.selectedPathEntriesCache[depth]!;
       const entries =
         entry.parentId === null
           ? [this.createRootNeighborhoodEntry(entry)]
           : this.getChildEntries(entry.parentId);
 
-      for (const childEntry of entries) {
+      for (const childEntry of this.filterNeighborhoodEntries(
+        entries,
+        entry.nodeId,
+        options.siblingWindow,
+      )) {
         const node = this.nodes[childEntry.nodeId]!;
         visibleNodes.push({
           ...childEntry,
@@ -636,6 +748,13 @@ export class BranchingTree<T extends Identified> {
     });
   }
 
+  private createTopologyEntry(node: BranchingTreeNode<T>): BranchingTreeSiblingEntry<T> {
+    const parent = node.parentId ? this.nodes[node.parentId] : undefined;
+    if (!parent) return this.createRootNeighborhoodEntry(this.createPathEntry(node));
+
+    return this.createSiblingEntry(node, parent, parent.childrenIds.indexOf(node.id));
+  }
+
   private createRootNeighborhoodEntry(
     entry: BranchingTreePathEntry<T>,
   ): BranchingTreeChildEntry<T> {
@@ -643,6 +762,20 @@ export class BranchingTree<T extends Identified> {
       ...entry,
       selected: true,
     });
+  }
+
+  private filterNeighborhoodEntries(
+    entries: readonly BranchingTreeChildEntry<T>[],
+    selectedNodeId: string,
+    siblingWindow: number | undefined,
+  ): readonly BranchingTreeChildEntry<T>[] {
+    if (siblingWindow === undefined) return entries;
+
+    const selectedEntry = entries.find((entry) => entry.nodeId === selectedNodeId)!;
+    const windowSize = Math.max(0, Math.floor(siblingWindow));
+    return entries.filter(
+      (entry) => Math.abs(entry.siblingIndex - selectedEntry.siblingIndex) <= windowSize,
+    );
   }
 
   private replaceCachedValue(value: T): void {

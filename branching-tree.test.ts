@@ -338,6 +338,134 @@ describe("BranchingTree", () => {
     expect(ids(tree.selectedPath)).toEqual(["a", "b2"]);
   });
 
+  it("should return full topology for every reachable valued node", () => {
+    const tree = new BranchingTree<Item>();
+    tree.append(item("a"));
+    tree.append(item("b"));
+    tree.appendChild("b", item("d"));
+    tree.addSibling("b", item("b2"));
+    tree.append(item("c"));
+
+    const topology = tree.getFullTopology();
+
+    expect(
+      topology.nodes.map((node) => ({
+        id: node.nodeId,
+        depth: node.depth,
+        selected: node.selected,
+        siblingIndex: node.siblingIndex,
+        siblingCount: node.siblingCount,
+        childCount: node.childCount,
+      })),
+    ).toEqual([
+      { id: "a", depth: 0, selected: true, siblingIndex: 0, siblingCount: 1, childCount: 2 },
+      { id: "b", depth: 1, selected: false, siblingIndex: 0, siblingCount: 2, childCount: 1 },
+      { id: "d", depth: 2, selected: false, siblingIndex: 0, siblingCount: 1, childCount: 0 },
+      { id: "b2", depth: 1, selected: true, siblingIndex: 1, siblingCount: 2, childCount: 1 },
+      { id: "c", depth: 2, selected: true, siblingIndex: 0, siblingCount: 1, childCount: 0 },
+    ]);
+    expect(topology.edges).toEqual([
+      { id: "a->b", parentId: "a", childId: "b", selected: false },
+      { id: "b->d", parentId: "b", childId: "d", selected: false },
+      { id: "a->b2", parentId: "a", childId: "b2", selected: true },
+      { id: "b2->c", parentId: "b2", childId: "c", selected: true },
+    ]);
+    expect(Object.isFrozen(topology)).toBe(true);
+    expect(Object.isFrozen(topology.nodes)).toBe(true);
+    expect(Object.isFrozen(topology.nodes[0])).toBe(true);
+    expect(Object.isFrozen(topology.edges)).toBe(true);
+    expect(Object.isFrozen(topology.edges[0])).toBe(true);
+  });
+
+  it("should return an empty full topology for an empty tree", () => {
+    const tree = new BranchingTree<Item>();
+
+    expect(tree.getFullTopology()).toEqual({ nodes: [], edges: [] });
+  });
+
+  it("should include a valued root in the full topology", () => {
+    const tree = new BranchingTree<Item>({
+      rootId: ROOT_NODE_ID,
+      nodes: {
+        [ROOT_NODE_ID]: { ...rootNode(["a"]), value: item(ROOT_NODE_ID) },
+        a: treeNode("a", ROOT_NODE_ID),
+      },
+    });
+
+    expect(
+      tree.getFullTopology().nodes.map((node) => ({
+        id: node.nodeId,
+        depth: node.depth,
+        selected: node.selected,
+        childCount: node.childCount,
+      })),
+    ).toEqual([
+      { id: ROOT_NODE_ID, depth: 0, selected: true, childCount: 1 },
+      { id: "a", depth: 1, selected: true, childCount: 0 },
+    ]);
+    expect(tree.getFullTopology().edges).toEqual([
+      {
+        id: `${ROOT_NODE_ID}->a`,
+        parentId: ROOT_NODE_ID,
+        childId: "a",
+        selected: true,
+      },
+    ]);
+  });
+
+  it("should summarize branches and subtrees", () => {
+    const tree = new BranchingTree<Item>();
+    tree.append(item("a"));
+    tree.append(item("b"));
+    tree.appendChild("b", item("c"));
+    tree.appendChild("b", item("d"));
+    tree.appendChild("d", item("e"));
+    tree.addSibling("b", item("b2"));
+
+    expect(tree.getBranchSummary("b")).toEqual({
+      nodeId: "b",
+      descendantCount: 3,
+      leafCount: 2,
+      maxDepth: 2,
+      branchPoints: 1,
+    });
+    expect(tree.getBranchSummary("c")).toEqual({
+      nodeId: "c",
+      descendantCount: 0,
+      leafCount: 1,
+      maxDepth: 0,
+      branchPoints: 0,
+    });
+    expect(tree.getBranchSummary(ROOT_NODE_ID)).toEqual({
+      nodeId: ROOT_NODE_ID,
+      descendantCount: 6,
+      leafCount: 3,
+      maxDepth: 4,
+      branchPoints: 2,
+    });
+    expect(tree.getBranchSummary("missing")).toBeNull();
+  });
+
+  it("should summarize orphaned cyclic branches without looping forever", () => {
+    const tree = new BranchingTree<Item>({
+      rootId: ROOT_NODE_ID,
+      nodes: {
+        [ROOT_NODE_ID]: rootNode(["a"]),
+        a: treeNode("a", ROOT_NODE_ID),
+        x: treeNode("x", "y", ["y"]),
+        y: treeNode("y", "x", ["x"]),
+      },
+    });
+
+    expect(tree.getBranchSummary("x")).toEqual({
+      nodeId: "x",
+      descendantCount: 1,
+      leafCount: 0,
+      maxDepth: 1,
+      branchPoints: 0,
+    });
+  });
+
   it("should return a selected path neighborhood for tree map rendering", () => {
     const tree = new BranchingTree<Item>();
     tree.append(item("a"));
@@ -376,6 +504,71 @@ describe("BranchingTree", () => {
     expect(Object.isFrozen(neighborhood.nodes[0])).toBe(true);
     expect(Object.isFrozen(neighborhood.edges)).toBe(true);
     expect(Object.isFrozen(neighborhood.edges[0])).toBe(true);
+  });
+
+  it("should limit selected path neighborhoods by depth", () => {
+    const tree = new BranchingTree<Item>();
+    tree.append(item("a"));
+    tree.append(item("b"));
+    tree.addSibling("b", item("b2"));
+    tree.append(item("c"));
+    tree.appendChild("b", item("hidden-under-b"));
+    tree.appendChild("b2", item("c2"), { select: false });
+
+    const neighborhood = tree.getSelectedPathNeighborhood({ maxDepth: 1 });
+
+    expect(neighborhood.nodes.map((node) => node.nodeId)).toEqual(["a", "b", "b2"]);
+    expect(
+      neighborhood.nodes.map((node) => ({
+        id: node.nodeId,
+        hiddenChildCount: node.hiddenChildCount,
+      })),
+    ).toEqual([
+      { id: "a", hiddenChildCount: 0 },
+      { id: "b", hiddenChildCount: 1 },
+      { id: "b2", hiddenChildCount: 2 },
+    ]);
+    expect(neighborhood.edges).toEqual([
+      { id: "a->b", parentId: "a", childId: "b", selected: false },
+      { id: "a->b2", parentId: "a", childId: "b2", selected: true },
+    ]);
+    expect(tree.getSelectedPathNeighborhood({ maxDepth: -1 })).toEqual({
+      nodes: [],
+      edges: [],
+    });
+  });
+
+  it("should limit selected path neighborhoods by sibling window", () => {
+    const tree = new BranchingTree<Item>();
+    tree.append(item("a"));
+    tree.append(item("b"));
+    tree.addSibling("b", item("b2"));
+    tree.addSibling("b2", item("b3"));
+    tree.addSibling("b3", item("b4"));
+    tree.selectPathTo("b3");
+
+    const neighborhood = tree.getSelectedPathNeighborhood({ siblingWindow: 1 });
+    const selectedOnly = tree.getSelectedPathNeighborhood({ siblingWindow: 0.8 });
+
+    expect(neighborhood.nodes.map((node) => node.nodeId)).toEqual(["a", "b2", "b3", "b4"]);
+    expect(
+      neighborhood.nodes.map((node) => ({
+        id: node.nodeId,
+        selected: node.selected,
+        hiddenChildCount: node.hiddenChildCount,
+      })),
+    ).toEqual([
+      { id: "a", selected: true, hiddenChildCount: 1 },
+      { id: "b2", selected: false, hiddenChildCount: 0 },
+      { id: "b3", selected: true, hiddenChildCount: 0 },
+      { id: "b4", selected: false, hiddenChildCount: 0 },
+    ]);
+    expect(neighborhood.edges).toEqual([
+      { id: "a->b2", parentId: "a", childId: "b2", selected: false },
+      { id: "a->b3", parentId: "a", childId: "b3", selected: true },
+      { id: "a->b4", parentId: "a", childId: "b4", selected: false },
+    ]);
+    expect(selectedOnly.nodes.map((node) => node.nodeId)).toEqual(["a", "b3"]);
   });
 
   it("should insert without selecting when requested", () => {

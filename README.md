@@ -5,7 +5,7 @@ UIs.
 
 [![TypeScript](https://img.shields.io/badge/TypeScript-6.0-3178c6?logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
 [![Coverage](https://img.shields.io/badge/coverage-100%25-16a34a)](#quality-checks)
-[![Tests](https://img.shields.io/badge/tests-70%20passing-16a34a)](#quality-checks)
+[![Tests](https://img.shields.io/badge/tests-77%20passing-16a34a)](#quality-checks)
 [![Demo](https://img.shields.io/badge/demo-ArrowJS-2c4f7c)](#demo)
 
 <picture>
@@ -167,7 +167,7 @@ arrays.
 
 Use `getSelectedPathNeighborhood()` when you need data for a tree map like the
 demo. The helper returns only graph facts: which nodes are visible, how they
-relate to each other, which ones are selected, and how many descendants are
+relate to each other, which ones are selected, and how many direct children are
 hidden. It doesn't include coordinates or rendering details.
 
 ```ts
@@ -180,6 +180,30 @@ for (const node of graph.nodes) {
 for (const edge of graph.edges) {
   console.log(edge.parentId, edge.childId, edge.selected);
 }
+```
+
+Limit the neighborhood when you want a focused view around the active path:
+
+```ts
+const focusedGraph = tree.getSelectedPathNeighborhood({
+  maxDepth: 4,
+  siblingWindow: 1,
+});
+```
+
+Use `getFullTopology()` when you need every reachable value in the tree without
+layout coordinates:
+
+```ts
+const topology = tree.getFullTopology();
+```
+
+Use `getBranchSummary(id)` when you need cheap subtree facts for collapsed
+branches, badges, or inspectors:
+
+```ts
+const summary = tree.getBranchSummary("assistant-1b");
+// { descendantCount, leafCount, maxDepth, branchPoints }
 ```
 
 Each `BranchingTreePathNeighborhoodNode<T>` includes the same fields as
@@ -195,6 +219,9 @@ Each `BranchingTreePathNeighborhoodEdge` includes these fields:
 - `id` is a stable edge id from `BranchingTree.createEdgeId(parentId, childId)`.
 - `parentId` and `childId` identify the connected nodes.
 - `selected` is `true` when the edge is part of the active selected path.
+
+`getFullTopology()` returns the same edge shape and
+`BranchingTreeTopologyNode<T>` entries for every reachable valued node.
 
 ## API reference
 
@@ -213,6 +240,8 @@ selected path from the root to a leaf.
 - `BranchingTreePathEntry<T>` describes a selected path value plus its sibling
   metadata.
 - `BranchingTreeSiblingEntry<T>` describes a sibling and whether it's selected.
+- `BranchingTreeTopology<T>` describes every reachable valued node and edge.
+- `BranchingTreeBranchSummary` describes subtree counts for one node.
 - `selectedPath` returns the cached selected values in O(1) time.
 - `selectedPathEntries` returns cached selected values plus sibling metadata in
   O(1) time.
@@ -242,8 +271,13 @@ callers can't accidentally mutate the tree shape.
   the referenced parent node.
 - `getPathEntriesTo(id)` returns path entries from the root to a node without
   changing the selected path.
-- `getSelectedPathNeighborhood()` returns the active path plus each active
-  node's visible siblings as graph nodes and edges.
+- `getFullTopology()` returns every reachable valued node and edge without
+  layout coordinates.
+- `getBranchSummary(id)` returns subtree counts for descendants, leaves, depth,
+  and branch points, or `null` when the node doesn't exist.
+- `getSelectedPathNeighborhood(options)` returns the active path plus each
+  active node's visible siblings as graph nodes and edges. Optional `maxDepth`
+  and `siblingWindow` values narrow the returned neighborhood.
 - `getSelectedPathState()` returns a serializable state containing only the
   current selected path. It preserves the selected nodes' ids and values while
   pruning all inactive siblings and descendants.
@@ -401,6 +435,7 @@ deleting from a selected message, and pruning message versions with or without
 keeping the selected version. It also includes a create-linear action backed by
 `getSelectedPathState()` and uses `getSelectedPathNeighborhood()` for map
 rendering. New demo messages use `BranchingTree.createNodeId`.
+The minimap uses `getFullTopology()` for whole-tree graph facts.
 
 Open the local Vite URL printed by the command. The demo remembers node
 coordinates across version switches, reuses existing SVG elements where possible,

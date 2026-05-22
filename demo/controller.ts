@@ -5,6 +5,8 @@ import {
   type BranchingTreePathNeighborhoodEdge,
   type BranchingTreePathNeighborhoodNode,
   type BranchingTreeState,
+  type BranchingTreeTopologyEdge,
+  type BranchingTreeTopologyNode,
   type Identified,
 } from "../branching-tree";
 import { setDemoActions } from "./actions";
@@ -1294,33 +1296,48 @@ type MinimapPlacement = {
 };
 
 function placeMinimapNodes(
-  nodes: Readonly<Record<string, BranchingTreeNode<DemoMessage>>>,
-  rootId: string,
+  nodes: readonly BranchingTreeTopologyNode<DemoMessage>[],
+  edges: readonly BranchingTreeTopologyEdge[],
 ): MinimapPlacement {
   const xById = new Map<string, number>();
   const depthById = new Map<string, number>();
+  const childIdsByParent = new Map<string, string[]>();
+  const childIds = new Set<string>();
   let leafCursor = 0;
   let maxDepth = 0;
+
+  for (const edge of edges) {
+    childIds.add(edge.childId);
+    const children = childIdsByParent.get(edge.parentId);
+    if (children) {
+      children.push(edge.childId);
+    } else {
+      childIdsByParent.set(edge.parentId, [edge.childId]);
+    }
+  }
 
   const assign = (id: string, depth: number): void => {
     depthById.set(id, depth);
     if (depth > maxDepth) maxDepth = depth;
 
-    const childIds = nodes[id]?.childrenIds ?? [];
-    if (childIds.length === 0) {
+    const children = childIdsByParent.get(id) ?? [];
+    if (children.length === 0) {
       xById.set(id, leafCursor);
       leafCursor += 1;
       return;
     }
 
     let sum = 0;
-    for (const childId of childIds) {
+    for (const childId of children) {
       assign(childId, depth + 1);
       sum += xById.get(childId) ?? 0;
     }
-    xById.set(id, sum / childIds.length);
+    xById.set(id, sum / children.length);
   };
-  assign(rootId, -1);
+
+  for (const node of nodes) {
+    if (!childIds.has(node.nodeId)) assign(node.nodeId, node.depth);
+  }
 
   return { xById, depthById, maxX: Math.max(0, leafCursor - 1), maxDepth };
 }
@@ -1338,8 +1355,7 @@ function syncMinimap(headId: string | null): void {
 function renderMinimapTopology(): void {
   if (!minimapSvg) return;
 
-  const state = tree.getState();
-  const nodeIds = Object.keys(state.nodes).filter((id) => id !== state.rootId);
+  const topology = tree.getFullTopology();
   minimapDotElements = new Map();
   minimapEdgeElements = new Map();
   minimapActiveNodeIds = new Set();
@@ -1349,9 +1365,9 @@ function renderMinimapTopology(): void {
   minimapSvg.setAttribute("width", String(MINIMAP_WIDTH));
   minimapSvg.setAttribute("height", String(MINIMAP_HEIGHT));
   minimapSvg.setAttribute("viewBox", `0 0 ${MINIMAP_WIDTH} ${MINIMAP_HEIGHT}`);
-  minimapCount.textContent = `${nodeIds.length} messages`;
+  minimapCount.textContent = `${topology.nodes.length} messages`;
 
-  const placement = placeMinimapNodes(state.nodes, state.rootId);
+  const placement = placeMinimapNodes(topology.nodes, topology.edges);
   const innerWidth = MINIMAP_WIDTH - MINIMAP_PADDING * 2;
   const innerHeight = MINIMAP_HEIGHT - MINIMAP_PADDING * 2;
   const px = (id: string): number =>
@@ -1367,31 +1383,28 @@ function renderMinimapTopology(): void {
   const dotLayer = svgElement("g");
   minimapSvg.replaceChildren(edgeLayer, dotLayer);
 
-  for (const id of nodeIds) {
-    const parentId = state.nodes[id]?.parentId;
-    if (!parentId || parentId === state.rootId) continue;
+  for (const edge of topology.edges) {
+    if (!placement.xById.has(edge.parentId) || !placement.xById.has(edge.childId)) continue;
 
     const line = svgElement("line");
-    const edgeId = BranchingTree.createEdgeId(parentId, id);
     line.setAttribute("class", "minimap-edge");
-    line.setAttribute("x1", String(px(parentId)));
-    line.setAttribute("y1", String(py(parentId)));
-    line.setAttribute("x2", String(px(id)));
-    line.setAttribute("y2", String(py(id)));
-    line.dataset.id = edgeId;
-    minimapEdgeElements.set(edgeId, line);
+    line.setAttribute("x1", String(px(edge.parentId)));
+    line.setAttribute("y1", String(py(edge.parentId)));
+    line.setAttribute("x2", String(px(edge.childId)));
+    line.setAttribute("y2", String(py(edge.childId)));
+    line.dataset.id = edge.id;
+    minimapEdgeElements.set(edge.id, line);
     edgeLayer.append(line);
   }
 
-  for (const id of nodeIds) {
-    const role = state.nodes[id]?.value?.role ?? "user";
+  for (const node of topology.nodes) {
     const dot = svgElement("circle");
-    dot.setAttribute("class", `minimap-dot role-${role}`);
-    dot.setAttribute("cx", String(px(id)));
-    dot.setAttribute("cy", String(py(id)));
+    dot.setAttribute("class", `minimap-dot role-${node.value.role}`);
+    dot.setAttribute("cx", String(px(node.nodeId)));
+    dot.setAttribute("cy", String(py(node.nodeId)));
     dot.setAttribute("r", String(MINIMAP_DOT));
-    dot.dataset.id = id;
-    minimapDotElements.set(id, dot);
+    dot.dataset.id = node.nodeId;
+    minimapDotElements.set(node.nodeId, dot);
     dotLayer.append(dot);
   }
 }
