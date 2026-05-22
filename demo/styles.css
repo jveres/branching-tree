@@ -19,7 +19,8 @@
   --ring: 173 80% 32%;
   --chart-user: 35 92% 52%;
   --chart-assistant: 184 74% 37%;
-  --selected-border: 220 12% 90%;
+  --selected-user-overlay: 35 92% 45%;
+  --selected-assistant-overlay: 184 74% 34%;
   --edge: 214.3 31.8% 86%;
   --radius: 8px;
   font-family:
@@ -50,7 +51,8 @@
     --ring: 172 66% 50%;
     --chart-user: 38 92% 58%;
     --chart-assistant: 184 74% 52%;
-    --selected-border: 218 18% 24%;
+    --selected-user-overlay: 38 84% 34%;
+    --selected-assistant-overlay: 184 66% 31%;
     --edge: 218 26% 24%;
   }
 }
@@ -313,8 +315,15 @@ body.is-map-dragging {
 
 .node-selection-ring {
   opacity: 0;
-  fill: hsl(var(--selected-border));
   stroke: none;
+}
+
+.tree-node.role-user .node-selection-ring {
+  fill: hsl(var(--selected-user-overlay) / 0.34);
+}
+
+.tree-node.role-assistant .node-selection-ring {
+  fill: hsl(var(--selected-assistant-overlay) / 0.34);
 }
 
 .tree-node.is-head .node-selection-ring {
