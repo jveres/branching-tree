@@ -17,7 +17,7 @@ export type ExplorationStore = {
   canCreateVersion: boolean;
   canToggleResponse: boolean;
   responseExpanded: boolean;
-  canPrune: boolean;
+  canDelete: boolean;
 };
 
 const explorationStore = reactive<ExplorationStore>({
@@ -37,7 +37,7 @@ const explorationStore = reactive<ExplorationStore>({
   canCreateVersion: false,
   canToggleResponse: false,
   responseExpanded: false,
-  canPrune: false,
+  canDelete: false,
 });
 
 export default explorationStore;

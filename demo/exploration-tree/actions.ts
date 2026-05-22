@@ -1,7 +1,7 @@
 export type ExplorationActions = {
   createVersion: () => void;
+  deleteNode: () => void;
   fitMap: () => void;
-  pruneBranch: () => void;
   resetExploration: () => void;
   selectNode: (id: string) => void;
   toggleResponse: () => void;
@@ -13,8 +13,8 @@ const noop = (): void => {};
 
 const currentActions: ExplorationActions = {
   createVersion: noop,
+  deleteNode: noop,
   fitMap: noop,
-  pruneBranch: noop,
   resetExploration: noop,
   selectNode: noop,
   toggleResponse: noop,
@@ -24,8 +24,8 @@ const currentActions: ExplorationActions = {
 
 export const explorationActions: ExplorationActions = {
   createVersion: () => currentActions.createVersion(),
+  deleteNode: () => currentActions.deleteNode(),
   fitMap: () => currentActions.fitMap(),
-  pruneBranch: () => currentActions.pruneBranch(),
   resetExploration: () => currentActions.resetExploration(),
   selectNode: (id) => currentActions.selectNode(id),
   toggleResponse: () => currentActions.toggleResponse(),

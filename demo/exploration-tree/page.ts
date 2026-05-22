@@ -104,10 +104,10 @@ function ExplorationPage(): ArrowTemplate {
             <button
               type="button"
               class="action-button is-danger"
-              disabled="${() => !explorationStore.canPrune}"
-              @click="${explorationActions.pruneBranch}"
+              disabled="${() => !explorationStore.canDelete}"
+              @click="${explorationActions.deleteNode}"
             >
-              Prune
+              Delete
             </button>
             <button type="button" class="action-button" @click="${explorationActions.resetExploration}">
               Reset

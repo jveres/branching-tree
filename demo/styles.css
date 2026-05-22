@@ -27,6 +27,12 @@
   --quote-foreground: 245 7% 36%;
   --quote-stroke: 245 5% 24%;
   --quote-shadow: 0 0% 0%;
+  --exploration-node-fill: 0 0% 100%;
+  --exploration-node-stroke: 0 0% 7%;
+  --exploration-selected-fill: var(--quote-fill);
+  --shimmer-card: 210 32% 96%;
+  --shimmer-base: 214 20% 88%;
+  --shimmer-highlight: 0 0% 100%;
   --radius: 8px;
   font-family:
     Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
@@ -64,6 +70,12 @@
     --quote-foreground: 245 18% 82%;
     --quote-stroke: 220 14% 78%;
     --quote-shadow: 0 0% 0%;
+    --exploration-node-fill: 225 24% 11%;
+    --exploration-node-stroke: 220 15% 72%;
+    --exploration-selected-fill: 225 22% 18%;
+    --shimmer-card: 225 24% 13%;
+    --shimmer-base: 224 16% 25%;
+    --shimmer-highlight: 224 18% 37%;
   }
 }
 
@@ -112,7 +124,7 @@ button {
 
 @media (prefers-color-scheme: dark) {
   .demo-page.is-exploration-demo {
-    --path-edge: 172 66% 50%;
+    --path-edge: var(--exploration-node-stroke);
   }
 }
 
@@ -326,6 +338,16 @@ body.is-map-dragging {
   stroke-width: 3.2;
 }
 
+.tree-edge.is-draft-link {
+  stroke-dasharray: 1 6;
+  stroke-linecap: round;
+}
+
+.tree-edge.is-selected.is-draft-link {
+  stroke-linecap: round;
+  stroke-dasharray: 1 7;
+}
+
 .tree-node {
   cursor: pointer;
   outline: none;
@@ -418,23 +440,12 @@ body.is-map-dragging {
 .demo-page.is-exploration-demo
   .tree-node.role-assistant:not(.is-selected):focus-visible
   .node-card {
-  fill: white;
-  stroke: black;
-}
-
-@media (prefers-color-scheme: dark) {
-  .demo-page.is-exploration-demo .tree-node.role-assistant .node-card,
-  .demo-page.is-exploration-demo .tree-node.role-assistant.is-selected .node-card,
-  .demo-page.is-exploration-demo
-    .tree-node.role-assistant:not(.is-selected):focus-visible
-    .node-card {
-    fill: hsl(0 0% 100%);
-    stroke: hsl(0 0% 0%);
-  }
+  fill: hsl(var(--exploration-node-fill));
+  stroke: hsl(var(--exploration-node-stroke));
 }
 
 .tree-node.is-generating .node-card {
-  fill: hsl(210 32% 96%);
+  fill: hsl(var(--shimmer-card));
 }
 
 .answer-shimmer {
@@ -457,11 +468,11 @@ body.is-map-dragging {
   border-radius: 999px;
   background: linear-gradient(
     100deg,
-    hsl(214 20% 88%) 0%,
-    hsl(214 20% 88%) 30%,
-    hsl(0 0% 100%) 45%,
-    hsl(214 20% 88%) 60%,
-    hsl(214 20% 88%) 100%
+    hsl(var(--shimmer-base)) 0%,
+    hsl(var(--shimmer-base)) 30%,
+    hsl(var(--shimmer-highlight)) 45%,
+    hsl(var(--shimmer-base)) 60%,
+    hsl(var(--shimmer-base)) 100%
   );
   background-size: 220% 100%;
   animation: answer-shimmer 2s linear infinite;
@@ -505,30 +516,30 @@ body.is-map-dragging {
 .demo-page.is-exploration-demo
   .tree-node.role-assistant:not(.is-selected):focus-visible
   .node-card {
-  fill: white;
-  stroke: black;
+  fill: hsl(var(--exploration-node-fill));
+  stroke: hsl(var(--exploration-node-stroke));
 }
 
 .demo-page.is-exploration-demo .tree-node.is-query:not(.is-selected):not(.is-head) .node-card,
 .demo-page.is-exploration-demo
   .tree-node.is-query:not(.is-selected):not(.is-head):focus-visible
   .node-card {
-  fill: white;
+  fill: hsl(var(--exploration-node-fill));
   stroke: hsl(var(--quote-stroke));
 }
 
 .demo-page.is-exploration-demo .tree-node.is-head .node-card,
 .demo-page.is-exploration-demo .tree-node.role-assistant.is-head .node-card,
 .demo-page.is-exploration-demo .tree-node.is-query.is-head .node-card {
-  fill: hsl(var(--quote-fill));
+  fill: hsl(var(--exploration-selected-fill));
 }
 
 .demo-page.is-exploration-demo .tree-node.is-selected:not(.is-head).role-assistant .node-card {
-  fill: white;
+  fill: hsl(var(--exploration-node-fill));
 }
 
 .demo-page.is-exploration-demo .tree-node.is-selected:not(.is-head).is-query .node-card {
-  fill: white;
+  fill: hsl(var(--exploration-node-fill));
 }
 
 .demo-page.is-exploration-demo .tree-node.is-selected .node-card {
@@ -536,7 +547,7 @@ body.is-map-dragging {
 }
 
 .demo-page.is-exploration-demo .tree-node.is-head:focus-visible .node-card {
-  fill: hsl(var(--quote-fill));
+  fill: hsl(var(--exploration-selected-fill));
 }
 
 .node-role,
@@ -630,7 +641,7 @@ body.is-map-dragging {
 }
 
 .demo-page.is-exploration-demo .node-child-badge .node-child-dot {
-  fill: white;
+  fill: hsl(var(--exploration-node-fill));
   stroke: hsl(var(--quote-stroke));
 }
 

@@ -39,6 +39,7 @@ type PositionedNode = {
 };
 
 type PositionedEdge = BranchingTreePathNeighborhoodEdge & {
+  className: string;
   d: string;
 };
 
@@ -94,6 +95,14 @@ type QueryFontMetrics = {
   descent: number;
 };
 
+type GenerationContext = {
+  abortController: AbortController;
+  generatedNodeIds: Set<string>;
+  questionId: string;
+  run: number;
+  signal: AbortSignal;
+};
+
 type TextLayout = {
   lines: string[];
   width: number;
@@ -133,7 +142,8 @@ const MAP_PADDING = 48;
 const FIT_PADDING = 28;
 const CANVAS_PADDING = 96;
 const ROOT_X = MAP_PADDING + NODE_WIDTH / 2 + COLUMN_WIDTH * 3;
-const MIN_ZOOM = 0.55;
+const INITIAL_ZOOM = 1;
+const MIN_ZOOM = 0.35;
 const MAX_ZOOM = 1.8;
 const DRAG_THRESHOLD = 4;
 const WHEEL_ZOOM_SPEED = 0.0015;
@@ -189,7 +199,7 @@ let resizeHandler: (() => void) | null = null;
 let nextSerial = 1;
 let demoStarted = false;
 let generationRun = 0;
-const pendingTimers = new Set<number>();
+const activeGenerations = new Map<string, GenerationContext>();
 
 export function startExplorationDemo(): () => void {
   if (demoStarted) return stopExplorationDemo;
@@ -201,8 +211,8 @@ export function startExplorationDemo(): () => void {
 
   setExplorationActions({
     createVersion,
+    deleteNode,
     fitMap,
-    pruneBranch,
     resetExploration,
     selectNode,
     toggleResponse,
@@ -231,6 +241,19 @@ export function startExplorationDemo(): () => void {
     if (!id) return;
 
     if (handleDraftQueryKeyboardInput(id, event)) return;
+
+    if (event.key === "Tab" && createUserVersion(id)) {
+      event.preventDefault();
+      enableKeyboardHoverSuppression();
+      return;
+    }
+
+    if (event.key === "Backspace") {
+      event.preventDefault();
+      enableKeyboardHoverSuppression();
+      deleteNodeById(id);
+      return;
+    }
 
     if (event.key === "Enter" || event.key === " ") {
       event.preventDefault();
@@ -307,8 +330,7 @@ function stopExplorationDemo(): void {
   if (!demoStarted) return;
 
   demoStarted = false;
-  generationRun++;
-  clearPendingTimers();
+  abortGeneration();
   cancelCameraAnimation();
   if (resizeAnimationId !== null) {
     cancelAnimationFrame(resizeAnimationId);
@@ -325,8 +347,7 @@ function stopExplorationDemo(): void {
 
 function resetExploration(): void {
   const started = performance.now();
-  generationRun++;
-  clearPendingTimers();
+  abortGeneration();
   nextSerial = 1;
   tree = new BranchingTree<ExplorationItem>();
   const root = createDraftQuestion(0);
@@ -334,7 +355,7 @@ function resetExploration(): void {
   positionCache = new Map();
   resetSvgLayers();
   refreshView(tree.head?.id ?? root.id, true);
-  fitMap();
+  centerMapAtScale(INITIAL_ZOOM);
   explorationStore.actionTime = formatMs(performance.now() - started);
 }
 
@@ -367,47 +388,54 @@ function submitQuestion(id: string, rawQuestion: string): void {
     status: "complete",
   });
   refreshView(id, true);
+  focusNode(id, { scrollIntoView: true });
   explorationStore.actionTime = formatMs(performance.now() - started);
-  void generateAnswerVersions(id, question, value.turn, ++generationRun);
+  void generateAnswerVersions(id, question, value.turn, startGeneration(id));
 }
 
 async function generateAnswerVersions(
   questionId: string,
   question: string,
   questionTurn: number,
-  run: number,
+  context: GenerationContext,
 ): Promise<void> {
   const versionCount = 1 + Math.floor(Math.random() * 4);
   let referenceAnswerId: string | null = null;
 
-  for (let index = 0; index < versionCount; index++) {
-    if (!isActiveRun(run)) return;
+  try {
+    for (let index = 0; index < versionCount; index++) {
+      if (!isActiveQuestionRun(context, questionId)) return;
 
-    const placeholder = createGeneratingAnswer(question, questionTurn, index, versionCount);
-    if (referenceAnswerId) {
-      tree.addSibling(referenceAnswerId, placeholder, { select: false });
-    } else {
-      tree.appendChild(questionId, placeholder, { select: true });
-      referenceAnswerId = placeholder.id;
+      const placeholder = createGeneratingAnswer(question, questionTurn, index, versionCount);
+      if (referenceAnswerId) {
+        if (!tree.hasNode(referenceAnswerId)) return;
+        tree.addSibling(referenceAnswerId, placeholder, { select: false });
+      } else {
+        tree.appendChild(questionId, placeholder, { select: false });
+        referenceAnswerId = placeholder.id;
+      }
+      context.generatedNodeIds.add(placeholder.id);
+
+      refreshView(getGenerationInspectorId(questionId), true);
+      scrollNodeIntoViewAfterRender(placeholder.id);
+
+      if (!(await waitForAiLatency(context))) return;
+      if (!isActiveQuestionRun(context, questionId)) return;
+
+      const current = tree.getValue(placeholder.id);
+      if (!current) return;
+
+      tree.update(createCompletedAnswer(current, question, index, versionCount));
+      refreshView(getGenerationInspectorId(questionId), true);
+      scrollNodeIntoViewAfterRender(placeholder.id);
     }
-
-    refreshView(getSelectedHeadId(placeholder.id), true);
-    focusNode(placeholder.id);
-    scrollNodeIntoViewAfterRender(placeholder.id);
-
-    if (!(await waitForAiLatency(run))) return;
-
-    const current = tree.getValue(placeholder.id);
-    if (!current) return;
-
-    tree.update(createCompletedAnswer(current, question, index, versionCount));
-    refreshView(getSelectedHeadId(placeholder.id), true);
-    scrollNodeIntoViewAfterRender(placeholder.id);
+  } finally {
+    finishGeneration(context);
   }
 }
 
-function getSelectedHeadId(fallbackId: string): string {
-  return tree.head?.id ?? fallbackId;
+function getGenerationInspectorId(questionId: string): string {
+  return inspectorNodeId && tree.hasNode(inspectorNodeId) ? inspectorNodeId : questionId;
 }
 
 function createGeneratingAnswer(
@@ -478,38 +506,137 @@ function pickRandom<T>(items: readonly T[]): T {
   return items[Math.floor(Math.random() * items.length)] ?? items[0]!;
 }
 
-function waitForAiLatency(run: number): Promise<boolean> {
+function waitForAiLatency(context: GenerationContext): Promise<boolean> {
   const latency = 650 + Math.floor(Math.random() * 900);
+  if (context.signal.aborted) return Promise.resolve(false);
+
   return new Promise((resolve) => {
+    let settled = false;
     const timer = window.setTimeout(() => {
-      pendingTimers.delete(timer);
-      resolve(isActiveRun(run));
+      finish(isActiveRun(context));
     }, latency);
-    pendingTimers.add(timer);
+
+    const abort = (): void => finish(false);
+    const finish = (value: boolean): void => {
+      if (settled) return;
+
+      settled = true;
+      window.clearTimeout(timer);
+      context.signal.removeEventListener("abort", abort);
+      resolve(value);
+    };
+
+    context.signal.addEventListener("abort", abort, { once: true });
+    if (context.signal.aborted) abort();
   });
 }
 
-function isActiveRun(run: number): boolean {
-  return demoStarted && run === generationRun;
+function isActiveRun(context: GenerationContext): boolean {
+  return (
+    demoStarted &&
+    !context.signal.aborted &&
+    context.run <= generationRun &&
+    activeGenerations.get(context.questionId) === context
+  );
 }
 
-function clearPendingTimers(): void {
-  for (const timer of pendingTimers) window.clearTimeout(timer);
-  pendingTimers.clear();
+function isActiveQuestionRun(context: GenerationContext, questionId: string): boolean {
+  return isActiveRun(context) && tree.hasNode(questionId);
+}
+
+function startGeneration(questionId: string): GenerationContext {
+  abortGeneration(questionId);
+  const abortController = new AbortController();
+  const context = {
+    abortController,
+    generatedNodeIds: new Set<string>(),
+    questionId,
+    run: ++generationRun,
+    signal: abortController.signal,
+  };
+  activeGenerations.set(questionId, context);
+  return context;
+}
+
+function abortGeneration(questionId?: string): void {
+  if (questionId !== undefined) {
+    const context = activeGenerations.get(questionId);
+    if (!context) return;
+
+    activeGenerations.delete(questionId);
+    context.abortController.abort();
+    return;
+  }
+
+  const contexts = [...activeGenerations.values()];
+  activeGenerations.clear();
+  for (const context of contexts) context.abortController.abort();
+}
+
+function finishGeneration(context: GenerationContext): void {
+  if (activeGenerations.get(context.questionId) === context) {
+    activeGenerations.delete(context.questionId);
+  }
+}
+
+function abortGenerationsForSubtree(id: string): void {
+  const subtreeIds = getSubtreeNodeIds(id);
+  for (const context of [...activeGenerations.values()]) {
+    if (subtreeIds.has(context.questionId) || hasGeneratedNodeIn(context, subtreeIds)) {
+      abortGeneration(context.questionId);
+    }
+  }
+}
+
+function hasGeneratedNodeIn(context: GenerationContext, ids: ReadonlySet<string>): boolean {
+  for (const id of context.generatedNodeIds) {
+    if (ids.has(id)) return true;
+  }
+
+  return false;
+}
+
+function getSubtreeNodeIds(id: string): Set<string> {
+  const ids = new Set<string>();
+  const stack = [id];
+
+  while (stack.length > 0) {
+    const nodeId = stack.pop()!;
+    if (ids.has(nodeId)) continue;
+
+    ids.add(nodeId);
+    const node = tree.getNode(nodeId);
+    for (const childId of node?.childrenIds ?? []) stack.push(childId);
+  }
+
+  return ids;
 }
 
 function createVersion(): void {
   if (!inspectorNodeId) return;
 
-  const reference = tree.getValue(inspectorNodeId);
-  const parentId = tree.getNode(inspectorNodeId)?.parentId ?? null;
-  if (!reference || reference.kind !== "query" || parentId === null) return;
+  createUserVersion(inspectorNodeId);
+}
+
+function createUserVersion(referenceId: string): boolean {
+  const reference = tree.getValue(referenceId);
+  const parentId = tree.getNode(referenceId)?.parentId ?? null;
+  if (!canCreateUserVersion(reference, parentId)) return false;
 
   const started = performance.now();
   const nextQuestion = createDraftQuestion(reference.turn);
-  tree.addSibling(inspectorNodeId, nextQuestion, { select: true });
+  tree.addSibling(referenceId, nextQuestion, { select: true });
   refreshView(nextQuestion.id, true);
+  focusNode(nextQuestion.id, { scrollIntoView: true });
   explorationStore.actionTime = formatMs(performance.now() - started);
+  return true;
+}
+
+function canCreateUserVersion(
+  value: ExplorationItem | undefined,
+  parentId: string | null,
+): value is ExplorationItem {
+  return value?.kind === "query" && value.status === "complete" && parentId !== null;
 }
 
 function ensureDraftQuestionAfterAnswer(id: string): string | null {
@@ -536,21 +663,43 @@ function toggleResponse(): void {
   explorationStore.actionTime = formatMs(performance.now() - started);
 }
 
-function pruneBranch(): void {
+function deleteNode(): void {
   if (!inspectorNodeId) return;
-  const id = inspectorNodeId;
-  const parentId = tree.getNode(id)?.parentId ?? null;
-  if (!parentId || parentId === ROOT_NODE_ID) return;
 
-  mutateTree(() => tree.deleteBranch(id), tree.head?.id ?? null);
+  deleteNodeById(inspectorNodeId);
 }
 
-function mutateTree(mutator: () => boolean, preferredInspectorId: string | null): void {
-  const started = performance.now();
-  if (!mutator()) return;
+function deleteNodeById(id: string): void {
+  const parentId = tree.getNode(id)?.parentId ?? null;
+  if (parentId === null) return;
 
-  refreshView(preferredInspectorId, true);
+  if (parentId === ROOT_NODE_ID && tree.getSiblingEntries(id).length === 1) {
+    resetExploration();
+    const headId = tree.head?.id ?? null;
+    if (headId) focusNode(headId, { scrollIntoView: true });
+    return;
+  }
+
+  const fallbackId = getDeleteFallbackId(id, parentId);
+  const started = performance.now();
+  abortGenerationsForSubtree(id);
+  if (!tree.deleteBranch(id)) return;
+
+  if (fallbackId && tree.hasNode(fallbackId)) tree.selectPathTo(fallbackId);
+  const nextInspectorId = refreshView(fallbackId, true);
+  if (nextInspectorId) focusNode(nextInspectorId, { scrollIntoView: true });
   explorationStore.actionTime = formatMs(performance.now() - started);
+}
+
+function getDeleteFallbackId(id: string, parentId: string): string | null {
+  const siblings = tree.getSiblingEntries(id);
+  const current = siblings.find((entry) => entry.nodeId === id);
+  if (current && siblings.length > 1) {
+    const fallbackIndex = current.siblingIndex === 0 ? 1 : current.siblingIndex - 1;
+    return siblings[fallbackIndex]?.nodeId ?? null;
+  }
+
+  return parentId;
 }
 
 function selectNodeAndFocus(id: string, options: { scrollIntoView?: boolean } = {}): void {
@@ -597,7 +746,7 @@ function isEmptyAnswerDraft(id: string, value: ExplorationItem): boolean {
   return parentValue?.kind === "answer";
 }
 
-function refreshView(preferredInspectorId: string | null, structureChanged = false): void {
+function refreshView(preferredInspectorId: string | null, structureChanged = false): string | null {
   if (structureChanged) positionCache = new Map(positionCache);
 
   layout = createVisibleLayout();
@@ -611,6 +760,7 @@ function refreshView(preferredInspectorId: string | null, structureChanged = fal
     renderEmptyInspector();
   }
   updateMetrics();
+  return nextInspectorId;
 }
 
 function getInspectableId(preferredId: string | null): string | null {
@@ -682,10 +832,17 @@ function createVisibleLayout(): LayoutModel {
 
     const edge: PositionedEdge = {
       ...neighborhoodEdge,
+      className: createEdgeClass(child),
       d: createEdgePath(parent, child, neighborhoodEdge.selected),
     };
     edges.push(edge);
     edgeIds.add(edge.id);
+  }
+
+  const rootSiblingEdge = createRootSiblingEdge(nodes);
+  if (rootSiblingEdge) {
+    edges.push(rootSiblingEdge);
+    edgeIds.add(rootSiblingEdge.id);
   }
 
   return {
@@ -699,6 +856,38 @@ function createVisibleLayout(): LayoutModel {
     edgeCount: Math.max(0, stats.totalNodes - 2),
     openCount: tree.getFullTopology().nodes.filter((node) => node.value.status === "generating")
       .length,
+  };
+}
+
+function createRootSiblingEdge(nodes: readonly PositionedNode[]): PositionedEdge | null {
+  const rootSiblings = nodes
+    .filter((node) => node.parentId === ROOT_NODE_ID)
+    .sort((left, right) => left.siblingIndex - right.siblingIndex);
+  if (rootSiblings.length < 2) return null;
+
+  const first = rootSiblings[0]!;
+  const segments: string[] = [];
+
+  for (let index = 0; index < rootSiblings.length - 1; index++) {
+    const left = rootSiblings[index]!;
+    const right = rootSiblings[index + 1]!;
+    const startX = left.x + getNodeWidth(left) / 2;
+    const endX = right.x - getNodeWidth(right) / 2;
+    const controlOffset = Math.min(32, Math.max(0, endX - startX) / 2);
+
+    segments.push(
+      `M ${startX} ${left.y}`,
+      `C ${startX + controlOffset} ${left.y} ${endX - controlOffset} ${right.y} ${endX} ${right.y}`,
+    );
+  }
+
+  return {
+    id: "root-sibling-edge",
+    parentId: ROOT_NODE_ID,
+    childId: first.id,
+    selected: false,
+    className: "tree-edge",
+    d: segments.join(" "),
   };
 }
 
@@ -773,6 +962,7 @@ function syncMap(model: LayoutModel): void {
   for (const edge of model.edges) {
     const element = edgeElements.get(edge.id);
     if (element) {
+      element.setAttribute("class", edge.className);
       element.setAttribute("d", edge.d);
     } else {
       appendEdgeElement(edge);
@@ -814,7 +1004,7 @@ function appendEdgeElement(edge: PositionedEdge): void {
   if (!edgeLayer) return;
 
   const path = svgElement("path");
-  path.setAttribute("class", "tree-edge");
+  path.setAttribute("class", edge.className);
   path.setAttribute("d", edge.d);
   path.dataset.id = edge.id;
   edgeElements.set(edge.id, path);
@@ -959,6 +1149,10 @@ function createNodeClass(node: PositionedNode): string {
   const generating = node.value.status === "generating" ? " is-generating" : "";
   const expanded = node.value.kind === "answer" && node.value.expanded ? " is-expanded-answer" : "";
   return `tree-node role-${node.value.role}${query}${draft}${generating}${expanded}`;
+}
+
+function createEdgeClass(child: PositionedNode): string {
+  return isDraftQueryNode(child) ? "tree-edge is-draft-link" : "tree-edge";
 }
 
 function createAnswerShimmer(node: PositionedNode): SVGForeignObjectElement {
@@ -1121,6 +1315,13 @@ function createQueryEditor(node: PositionedNode): SVGForeignObjectElement {
   input.addEventListener("click", (event) => event.stopPropagation());
   input.addEventListener("pointerdown", (event) => event.stopPropagation());
   input.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") {
+      event.preventDefault();
+      input.blur();
+      focusNode(node.id);
+      return;
+    }
+
     if (event.key !== "Enter") return;
 
     event.preventDefault();
@@ -1667,12 +1868,11 @@ function updateActionButtons(id: string | null): void {
   const parentId = id ? (tree.getNode(id)?.parentId ?? null) : null;
   const hasSelection = value !== undefined;
 
-  explorationStore.canCreateVersion =
-    hasSelection && value.kind === "query" && value.status !== "generating" && parentId !== null;
+  explorationStore.canCreateVersion = canCreateUserVersion(value, parentId);
   explorationStore.canToggleResponse =
     hasSelection && value.kind === "answer" && value.status === "complete";
   explorationStore.responseExpanded = hasSelection && value.kind === "answer" && value.expanded;
-  explorationStore.canPrune = hasSelection && parentId !== null && parentId !== ROOT_NODE_ID;
+  explorationStore.canDelete = hasSelection && parentId !== null;
 }
 
 function updateMetrics(): void {
@@ -1699,6 +1899,18 @@ function fitMap(): void {
   );
   camera = { x: 0, y: 0, scale: clamp(nextScale, MIN_ZOOM, MAX_ZOOM) };
   centerCamera(content, bounds);
+  applyCamera();
+}
+
+function centerMapAtScale(scale: number): void {
+  const bounds = mapPanel.getBoundingClientRect();
+  if (bounds.width === 0 || bounds.height === 0) return;
+
+  cancelCameraAnimation();
+  mapPanel.scrollLeft = 0;
+  mapPanel.scrollTop = 0;
+  camera = { x: 0, y: 0, scale: clamp(scale, MIN_ZOOM, MAX_ZOOM) };
+  centerCamera(getContentBounds(), bounds);
   applyCamera();
 }
 
