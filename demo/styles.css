@@ -733,6 +733,16 @@ body.is-map-dragging {
   fill: hsl(var(--foreground));
 }
 
+.image-response-panel {
+  fill: hsl(var(--muted) / 0.58);
+  stroke: hsl(var(--border));
+  stroke-width: 1;
+}
+
+.image-response-media {
+  pointer-events: none;
+}
+
 .node-meta {
   font-size: 11px;
   fill: hsl(var(--muted-foreground));
@@ -1028,6 +1038,7 @@ body.is-map-dragging {
   color: hsl(var(--foreground));
   font-size: 14px;
   line-height: 1.5;
+  white-space: pre-wrap;
 }
 
 .sibling-list,

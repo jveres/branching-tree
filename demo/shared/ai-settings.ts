@@ -5,14 +5,12 @@ export type AiSettingsSnapshot = {
   apiKey: string;
   baseUrl: string;
   model: string;
-  systemInstruction: string;
 };
 
 type PersistedAiSettings = {
   apiKey?: unknown;
   baseUrl?: unknown;
   model?: unknown;
-  systemInstruction?: unknown;
   version?: unknown;
 };
 
@@ -21,6 +19,7 @@ export type AiSettingsStore = AiSettingsSnapshot & {
   modelListStatus: string;
   modelOptions: string[];
   settingsOpen: boolean;
+  systemInstruction: string;
 };
 
 const STORAGE_KEY = "branching-tree:ai-settings:v1";
@@ -28,7 +27,7 @@ const STORAGE_VERSION = 1;
 export const DEFAULT_AI_BASE_URL = "https://api.openai.com/v1";
 export const DEFAULT_AI_MODEL = "gpt-4o-mini";
 export const DEFAULT_AI_SYSTEM_INSTRUCTION =
-  'You generate answer alternatives for an expanding exploration tree. Use the conversation path as context. Return only JSON shaped as {"answers":[{"title":"short label","content":"full answer","score":85}]}. Create 1 to 4 meaningfully different answers. Each content should answer the latest user question directly and suggest a useful direction for continuing the exploration.';
+  'You generate answer alternatives for an expanding exploration tree. Use the conversation path as context. Each answer round must explain the latest user question in both text and image: create at least one text explanation and one image explanation. Create 2 to 4 meaningfully different versions. Every version must have a distinct title, distinct framing, and a distinct tradeoff or next step; do not create near-duplicate titles or lightly reworded copies. Text versions must return JSON text shaped as {"type":"text","title":"short label","content":"full answer","score":85}. Image versions must use the image_generation tool to create actual image media in the same response and also return JSON text shaped as {"type":"image","title":"short label","content":"short accessible description","score":85}. Never return an image prompt as a substitute for image media.';
 
 const initialSettings = readAiSettings();
 let modelListController: AbortController | null = null;
@@ -39,6 +38,7 @@ export const aiSettingsStore = reactive<AiSettingsStore>({
   modelListStatus: "",
   modelOptions: [initialSettings.model],
   settingsOpen: false,
+  systemInstruction: DEFAULT_AI_SYSTEM_INSTRUCTION,
 });
 
 export function openAiSettings(): void {
@@ -66,17 +66,11 @@ export function setAiModel(model: string): void {
   persistAiSettings();
 }
 
-export function setAiSystemInstruction(systemInstruction: string): void {
-  aiSettingsStore.systemInstruction = systemInstruction;
-  persistAiSettings();
-}
-
 export function getAiSettingsSnapshot(): AiSettingsSnapshot {
   return {
     apiKey: aiSettingsStore.apiKey.trim(),
     baseUrl: normalizeBaseUrl(aiSettingsStore.baseUrl),
     model: aiSettingsStore.model.trim(),
-    systemInstruction: aiSettingsStore.systemInstruction.trim() || DEFAULT_AI_SYSTEM_INSTRUCTION,
   };
 }
 
@@ -134,7 +128,6 @@ function readAiSettings(): AiSettingsSnapshot {
     apiKey: "",
     baseUrl: DEFAULT_AI_BASE_URL,
     model: DEFAULT_AI_MODEL,
-    systemInstruction: DEFAULT_AI_SYSTEM_INSTRUCTION,
   };
   const storage = getLocalStorage();
   if (!storage) return fallback;
@@ -150,10 +143,6 @@ function readAiSettings(): AiSettingsSnapshot {
       apiKey: typeof parsed.apiKey === "string" ? parsed.apiKey : fallback.apiKey,
       baseUrl: typeof parsed.baseUrl === "string" ? parsed.baseUrl : fallback.baseUrl,
       model: typeof parsed.model === "string" ? parsed.model : fallback.model,
-      systemInstruction:
-        typeof parsed.systemInstruction === "string"
-          ? parsed.systemInstruction
-          : fallback.systemInstruction,
     };
   } catch {
     storage.removeItem(STORAGE_KEY);
@@ -173,7 +162,6 @@ function persistAiSettings(): void {
         apiKey: aiSettingsStore.apiKey,
         baseUrl: aiSettingsStore.baseUrl,
         model: aiSettingsStore.model,
-        systemInstruction: aiSettingsStore.systemInstruction,
       }),
     );
   } catch {

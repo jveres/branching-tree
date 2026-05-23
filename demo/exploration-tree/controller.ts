@@ -9,8 +9,14 @@ import {
   type BranchingTreeTopology,
   type Identified,
 } from "../../branching-tree";
-import { type AiChatMessage, createOpenAiCompatibleChatCompletion } from "../shared/ai-client";
 import {
+  type AiChatCompletion,
+  type AiChatMessage,
+  createOpenAiCompatibleChatCompletion,
+  createOpenAiCompatibleModelResponse,
+} from "../shared/ai-client";
+import {
+  DEFAULT_AI_SYSTEM_INSTRUCTION,
   getAiSettingsSnapshot,
   getAiSettingsStatus,
   hasConfiguredAiSettings,
@@ -23,6 +29,8 @@ import explorationStore from "./store";
 type ExplorationRole = "user" | "assistant";
 type ExplorationKind = "query" | "answer";
 type ExplorationStatus = "draft" | "generating" | "complete";
+type AnswerType = "image" | "text";
+type AnswerGenerationTarget = "image" | "text";
 
 type ExplorationItem = Identified & {
   role: ExplorationRole;
@@ -30,6 +38,8 @@ type ExplorationItem = Identified & {
   title: string;
   content: string;
   status: ExplorationStatus;
+  answerType?: AnswerType;
+  imageSrc?: string;
   score: number;
   turn: number;
   seed: number;
@@ -94,6 +104,11 @@ type ContentBounds = {
   height: number;
 };
 
+type ScrollSnapshot = {
+  left: number;
+  top: number;
+};
+
 type QueryTextMetrics = {
   lines: string[];
   width: number;
@@ -115,7 +130,9 @@ type GenerationContext = {
 };
 
 type GeneratedAnswerVersion = {
+  answerType: AnswerType;
   content: string;
+  imageSrc?: string;
   score: number;
   title: string;
 };
@@ -149,6 +166,8 @@ const SVG_NS = "http://www.w3.org/2000/svg";
 const NODE_WIDTH = 190;
 const ANSWER_NODE_WIDTH = 320;
 const ANSWER_NODE_MIN_HEIGHT = 76;
+const IMAGE_ANSWER_NODE_WIDTH = 430;
+const IMAGE_ANSWER_NODE_HEIGHT = 270;
 const ANSWER_TEXT_MAX_LINES = 30;
 const ANSWER_TEXT_FONT_SIZE = 12;
 const ANSWER_TEXT_FONT_WEIGHT = 500;
@@ -176,7 +195,7 @@ const QUERY_TEXT_TOP_PADDING = 10;
 const QUERY_TEXT_BOTTOM_PADDING = 10;
 const QUERY_TEXT_LINE_HEIGHT = 18;
 const VERSION_GAP = 18;
-const COLUMN_WIDTH = ANSWER_NODE_WIDTH + VERSION_GAP;
+const COLUMN_WIDTH = IMAGE_ANSWER_NODE_WIDTH + VERSION_GAP;
 const ROW_GAP = 60;
 const MAP_PADDING = 48;
 const FIT_PADDING = 28;
@@ -811,6 +830,7 @@ async function createGeneratedAnswerVersions(
     return;
   }
 
+  const createdAnswers: GeneratedAnswerVersion[] = [];
   for (let index = 0; index < versionCount; index++) {
     if (!isActiveQuestionRun(context, questionId)) return;
 
@@ -827,6 +847,7 @@ async function createGeneratedAnswerVersions(
         settings,
         index,
         versionCount,
+        createdAnswers,
         context,
       );
       if (!isActiveQuestionRun(context, questionId)) return;
@@ -835,6 +856,7 @@ async function createGeneratedAnswerVersions(
       if (!current) return;
 
       tree.update(completeGeneratedAnswer(current, answer));
+      createdAnswers.push(answer);
       explorationStore.aiStatus = `${settings.model} returned version ${index + 1}/${versionCount}.`;
       refreshView(getGenerationInspectorId(questionId), true);
       scrollNodeIntoViewAfterRender(placeholder.id);
@@ -859,11 +881,11 @@ async function createGeneratedAnswerVersionCount(
   context: GenerationContext,
 ): Promise<number> {
   const content = await createOpenAiCompatibleChatCompletion({
-    messages: createAnswerPlanningMessages(questionId, settings.systemInstruction),
+    messages: createAnswerPlanningMessages(questionId, DEFAULT_AI_SYSTEM_INSTRUCTION),
     settings,
     signal: context.signal,
   });
-  return parseGeneratedAnswerVersionCount(content);
+  return parseGeneratedAnswerVersionCount(content.text);
 }
 
 async function createGeneratedAnswerVersion(
@@ -871,14 +893,29 @@ async function createGeneratedAnswerVersion(
   settings: ReturnType<typeof getAiSettingsSnapshot>,
   index: number,
   total: number,
+  previousAnswers: readonly GeneratedAnswerVersion[],
   context: GenerationContext,
 ): Promise<GeneratedAnswerVersion> {
-  const content = await createOpenAiCompatibleChatCompletion({
-    messages: createAnswerGenerationMessages(questionId, settings.systemInstruction, index, total),
+  const target = getAnswerGenerationTarget(index);
+  const content = await createOpenAiCompatibleModelResponse({
+    messages: createAnswerGenerationMessages(
+      questionId,
+      DEFAULT_AI_SYSTEM_INSTRUCTION,
+      index,
+      total,
+      previousAnswers,
+      target,
+    ),
+    imageGeneration: target === "image",
+    imageGenerationRequired: target === "image",
     settings,
     signal: context.signal,
   });
   return parseGeneratedAnswerVersion(content, index);
+}
+
+function getAnswerGenerationTarget(index: number): AnswerGenerationTarget {
+  return index === 1 ? "image" : "text";
 }
 
 function createAnswerPlanningMessages(
@@ -890,7 +927,7 @@ function createAnswerPlanningMessages(
     {
       role: "user",
       content:
-        'Decide how many meaningfully different answer versions should be created for the latest user question. Return only JSON shaped as {"count":3}. The count must be an integer from 1 to 4.',
+        'Decide how many meaningfully different answer versions should be created for the latest user question. Return only JSON shaped as {"count":3}. The count must be an integer from 2 to 4 because each round must include at least one text explanation and one image explanation.',
     },
   ];
 }
@@ -900,14 +937,49 @@ function createAnswerGenerationMessages(
   systemInstruction: string,
   index: number,
   total: number,
+  previousAnswers: readonly GeneratedAnswerVersion[],
+  target: AnswerGenerationTarget,
 ): AiChatMessage[] {
+  const targetInstruction =
+    target === "image"
+      ? 'This is the image explanation version. Use the image_generation tool to create an actual visual explanation of the latest user question. Also return concise JSON text shaped as {"type":"image","title":"short label","content":"short accessible description","score":85}. The image must be returned as media/tool output in this same response; do not return an image prompt as a substitute.'
+      : 'This is a text explanation version. Return JSON text shaped as {"type":"text","title":"short label","content":"full answer","score":85}. Do not create image media for this version.';
+
   return [
     ...createSelectedPathMessages(questionId, systemInstruction),
+    createPreviousAnswerVersionsMessage(previousAnswers),
     {
       role: "user",
-      content: `Create answer version ${index + 1} of ${total}. Return only JSON shaped as {"title":"short label","content":"full answer","score":85}. Make this version meaningfully different from the other planned versions and directly answer the latest user question.`,
+      content: `Create answer version ${index + 1} of ${total}. ${targetInstruction} Make it meaningfully different from the other planned versions: use a distinct title, distinct framing, and a distinct tradeoff or next step. Do not create near-duplicate titles or lightly reworded copies.`,
     },
   ];
+}
+
+function createPreviousAnswerVersionsMessage(
+  previousAnswers: readonly GeneratedAnswerVersion[],
+): AiChatMessage {
+  if (previousAnswers.length === 0) {
+    return {
+      role: "user",
+      content: "No sibling answer versions have been created yet for the latest user question.",
+    };
+  }
+
+  return {
+    role: "user",
+    content: `Already created sibling answer versions for the latest user question. Use this full context to avoid duplicate titles, duplicate explanations, and lightly reworded copies:\n\n${previousAnswers
+      .map(formatPreviousAnswerVersion)
+      .join("\n\n---\n\n")}`,
+  };
+}
+
+function formatPreviousAnswerVersion(answer: GeneratedAnswerVersion, index: number): string {
+  return `Version ${index + 1}
+Type: ${answer.answerType}
+Title: ${answer.title}
+Score: ${answer.score}
+Content:
+${answer.content}`;
 }
 
 function createSelectedPathMessages(
@@ -949,6 +1021,7 @@ function createGeneratingAnswer(question: string, questionTurn: number): Explora
     title: "Generating answer",
     content: "Generating answer...",
     status: "generating",
+    answerType: "text",
     score: 0,
     turn: questionTurn + 1,
     seed,
@@ -960,23 +1033,31 @@ function completeGeneratedAnswer(
   value: ExplorationItem,
   answer: GeneratedAnswerVersion,
 ): ExplorationItem {
-  return {
+  const answerType = answer.answerType === "image" && answer.imageSrc ? "image" : "text";
+  const nextValue: ExplorationItem = {
     ...value,
+    answerType,
     title: createGeneratedAnswerTitle(answer),
     content: answer.content,
     status: "complete",
     score: answer.score,
   };
+  if (answerType === "image" && answer.imageSrc) nextValue.imageSrc = answer.imageSrc;
+  else delete nextValue.imageSrc;
+  return nextValue;
 }
 
 function createFailedAnswer(value: ExplorationItem, error: unknown): ExplorationItem {
-  return {
+  const nextValue: ExplorationItem = {
     ...value,
+    answerType: "text",
     title: "AI request failed",
     content: getAiErrorMessage(error),
     status: "complete",
     score: 0,
   };
+  delete nextValue.imageSrc;
+  return nextValue;
 }
 
 async function createSimulatedAnswerVersions(
@@ -986,7 +1067,7 @@ async function createSimulatedAnswerVersions(
   context: GenerationContext,
   firstPlaceholder: ExplorationItem,
 ): Promise<void> {
-  const versionCount = 1 + Math.floor(Math.random() * 4);
+  const versionCount = 2 + Math.floor(Math.random() * 3);
 
   for (let index = 0; index < versionCount; index++) {
     if (!isActiveQuestionRun(context, questionId)) return;
@@ -1026,11 +1107,38 @@ function createSimulatedAnswerVersion(
     siblingIndex,
   )}. A good next step is to ask a sharper follow-up from this branch so the graph expands in the direction that is actually useful.`;
 
+  if (siblingIndex % 3 === 1) {
+    const title = createAnswerHeadline(question, siblingIndex);
+    const subject = question.length > 42 ? `${question.slice(0, 39).trimEnd()}...` : question;
+    const content = `A visual explainer for "${subject}" that shows the context, the key idea behind "${title}", and the next question this branch should answer.`;
+    return {
+      answerType: "image",
+      title,
+      content,
+      imageSrc: createSimulatedImageSource(title, subject),
+      score: 67 + Math.floor(Math.random() * 29),
+    };
+  }
+
   return {
+    answerType: "text",
     title: createAnswerHeadline(question, siblingIndex),
     content,
     score: 67 + Math.floor(Math.random() * 29),
   };
+}
+
+function createSimulatedImageSource(title: string, subject: string): string {
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="640" height="360" viewBox="0 0 640 360"><rect width="640" height="360" rx="28" fill="#f8fafc"/><path d="M108 250h424M164 250 320 82l156 168" fill="none" stroke="#0f172a" stroke-width="14" stroke-linecap="round" stroke-linejoin="round"/><circle cx="164" cy="250" r="18" fill="#14b8a6"/><circle cx="320" cy="82" r="18" fill="#f59e0b"/><circle cx="476" cy="250" r="18" fill="#14b8a6"/><text x="320" y="304" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="26" font-weight="700" fill="#0f172a">${escapeSvgText(title)}</text><text x="320" y="336" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="18" fill="#64748b">${escapeSvgText(subject)}</text></svg>`;
+  return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
+}
+
+function escapeSvgText(value: string): string {
+  return value
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;");
 }
 
 function createGeneratedAnswerTitle(answer: GeneratedAnswerVersion): string {
@@ -1042,22 +1150,35 @@ function parseGeneratedAnswerVersionCount(rawContent: string): number {
   const rawCount = isRecord(payload) ? payload.count : null;
 
   if (typeof rawCount === "number" && Number.isFinite(rawCount)) {
-    return clamp(Math.round(rawCount), 1, 4);
+    return clamp(Math.round(rawCount), 2, 4);
   }
 
   if (typeof rawCount === "string") {
     const parsed = Number(rawCount);
-    if (Number.isFinite(parsed)) return clamp(Math.round(parsed), 1, 4);
+    if (Number.isFinite(parsed)) return clamp(Math.round(parsed), 2, 4);
   }
 
-  const fallback = rawContent.match(/\b[1-4]\b/);
-  return fallback ? Number(fallback[0]) : 1;
+  const fallback = rawContent.match(/\b[2-4]\b/);
+  return fallback ? Number(fallback[0]) : 2;
 }
 
-function parseGeneratedAnswerVersion(rawContent: string, index: number): GeneratedAnswerVersion {
-  const payload = parseJsonPayload(rawContent);
-  const answer = normalizeGeneratedAnswerVersion(getGeneratedAnswerPayload(payload, index), index);
-  return answer ?? createAnswerVersionFromText(rawContent, index);
+function parseGeneratedAnswerVersion(
+  completion: AiChatCompletion,
+  index: number,
+): GeneratedAnswerVersion {
+  const payload = parseJsonPayload(completion.text);
+  const imageSrc = completion.media[0]?.src ?? null;
+  const answer = normalizeGeneratedAnswerVersion(
+    getGeneratedAnswerPayload(payload, index),
+    index,
+    imageSrc,
+  );
+  return (
+    answer ??
+    (imageSrc
+      ? createImageAnswerVersionFromMedia(completion, index)
+      : createAnswerVersionFromText(completion.text, index))
+  );
 }
 
 function getGeneratedAnswerPayload(payload: unknown, index: number): unknown {
@@ -1073,17 +1194,42 @@ function getGeneratedAnswerPayload(payload: unknown, index: number): unknown {
 function normalizeGeneratedAnswerVersion(
   value: unknown,
   index: number,
+  mediaImageSrc: string | null,
 ): GeneratedAnswerVersion | null {
   if (typeof value === "string") return createAnswerVersionFromText(value, index);
   if (!isRecord(value)) return null;
 
-  const content = getStringProperty(value, "content", "answer", "text");
+  const explicitTitle = getStringProperty(value, "title", "label");
+  const answerType = getAnswerTypeProperty(value);
+  const imageSrc = mediaImageSrc ?? getImageSourceProperty(value);
+  const textContent = getStringProperty(
+    value,
+    "content",
+    "answer",
+    "text",
+    "description",
+    "caption",
+  );
+  const imageContent = getImageResponseContent(value);
+  const content =
+    answerType === "image" ? (textContent ?? imageContent) : (textContent ?? imageContent);
   if (!content) return null;
 
-  const title = getStringProperty(value, "title", "label") ?? createAnswerTitleFromContent(content);
+  const resolvedTitle = explicitTitle ?? createAnswerTitleFromContent(content);
   const score = getNumberProperty(value, "score") ?? 80;
+  if (imageSrc) {
+    return {
+      answerType: "image",
+      title: resolvedTitle,
+      content,
+      imageSrc,
+      score: clamp(Math.round(score), 0, 100),
+    };
+  }
+
   return {
-    title,
+    answerType: "text",
+    title: resolvedTitle,
     content,
     score: clamp(Math.round(score), 0, 100),
   };
@@ -1092,10 +1238,70 @@ function normalizeGeneratedAnswerVersion(
 function createAnswerVersionFromText(content: string, index: number): GeneratedAnswerVersion {
   const normalizedContent = content.trim();
   return {
+    answerType: "text",
     title: createAnswerTitleFromContent(normalizedContent) || `answer ${index + 1}`,
     content: normalizedContent,
     score: 80,
   };
+}
+
+function createImageAnswerVersionFromMedia(
+  completion: AiChatCompletion,
+  index: number,
+): GeneratedAnswerVersion {
+  const media = completion.media[0];
+  const content = completion.text || media?.alt || "Generated visual explainer.";
+  const answer: GeneratedAnswerVersion = {
+    answerType: "image",
+    content,
+    score: 80,
+    title: createAnswerTitleFromContent(content) || `image ${index + 1}`,
+  };
+  if (media?.src) answer.imageSrc = media.src;
+  return answer;
+}
+
+function getAnswerTypeProperty(record: Record<string, unknown>): AnswerType {
+  const rawType = getStringProperty(record, "type", "answerType", "format", "kind")?.toLowerCase();
+  return rawType === "image" || rawType === "visual" || rawType === "diagram" ? "image" : "text";
+}
+
+function getImageResponseContent(record: Record<string, unknown>): string | null {
+  const prompt =
+    getStringProperty(record, "imagePrompt", "visualPrompt", "prompt") ??
+    getStringProperty(record, "image");
+  if (prompt) return prompt;
+
+  const image = getRecordProperty(record, "image", "visual", "diagram");
+  if (!image) return null;
+
+  return getStringProperty(
+    image,
+    "imagePrompt",
+    "visualPrompt",
+    "prompt",
+    "description",
+    "caption",
+    "alt",
+    "headline",
+  );
+}
+
+function getImageSourceProperty(record: Record<string, unknown>): string | null {
+  const direct = getStringProperty(record, "imageSrc", "imageUrl", "url", "src");
+  if (direct) return direct;
+
+  const image = getRecordProperty(record, "image", "media");
+  if (!image) return null;
+
+  const nested = getStringProperty(image, "imageSrc", "imageUrl", "url", "src");
+  if (nested) return nested;
+
+  const base64 = getStringProperty(image, "b64_json", "base64", "data");
+  if (!base64) return null;
+
+  const mimeType = getStringProperty(image, "mime_type", "media_type", "mimeType") ?? "image/png";
+  return base64.startsWith("data:") ? base64 : `data:${mimeType};base64,${base64}`;
 }
 
 function createAnswerTitleFromContent(content: string): string {
@@ -1133,6 +1339,18 @@ function getStringProperty(record: Record<string, unknown>, ...keys: string[]): 
   for (const key of keys) {
     const value = record[key];
     if (typeof value === "string" && value.trim() !== "") return value.trim();
+  }
+
+  return null;
+}
+
+function getRecordProperty(
+  record: Record<string, unknown>,
+  ...keys: string[]
+): Record<string, unknown> | null {
+  for (const key of keys) {
+    const value = record[key];
+    if (isRecord(value)) return value;
   }
 
   return null;
@@ -1695,6 +1913,10 @@ function appendNodeElement(node: PositionedNode): void {
   const card = query ? svgElement("path") : svgElement("rect");
   const editor = draftQuery ? createQueryEditor(node) : null;
   const shimmer = !query && node.value.status === "generating" ? createAnswerShimmer(node) : null;
+  const imageGraphic =
+    !query && node.value.status !== "generating" && isImageAnswerValue(node.value)
+      ? createImageAnswerGraphic(node)
+      : null;
   const label = svgElement("text");
   const meta = svgElement("text");
   const clipId = createNodeTextClipId(node.id);
@@ -1758,6 +1980,8 @@ function appendNodeElement(node: PositionedNode): void {
   } else {
     if (shimmer) {
       group.append(selectionRing, card, shimmer);
+    } else if (imageGraphic) {
+      group.append(selectionRing, card, imageGraphic);
     } else {
       textGroup.append(label, meta);
       group.append(clipPath, selectionRing, card, textGroup);
@@ -1776,6 +2000,7 @@ function updateNodeElement(element: SVGGElement, node: PositionedNode): void {
     "is-draft",
     "is-temporary-draft",
     "is-generating",
+    "is-image-answer",
     "is-expanded-answer",
   );
   element.classList.add(`role-${node.value.role}`);
@@ -1783,6 +2008,7 @@ function updateNodeElement(element: SVGGElement, node: PositionedNode): void {
   if (isDraftQueryNode(node)) element.classList.add("is-draft");
   if (isTemporaryDraftNode(node)) element.classList.add("is-temporary-draft");
   if (node.value.status === "generating") element.classList.add("is-generating");
+  if (isImageAnswerValue(node.value)) element.classList.add("is-image-answer");
   if (node.value.kind === "answer" && node.value.expanded)
     element.classList.add("is-expanded-answer");
   element.setAttribute("aria-label", createNodeAriaLabel(node));
@@ -1818,8 +2044,9 @@ function createNodeClass(node: PositionedNode): string {
   const draft = isDraftQueryNode(node) ? " is-draft" : "";
   const temporaryDraft = isTemporaryDraftNode(node) ? " is-temporary-draft" : "";
   const generating = node.value.status === "generating" ? " is-generating" : "";
+  const image = isImageAnswerValue(node.value) ? " is-image-answer" : "";
   const expanded = node.value.kind === "answer" && node.value.expanded ? " is-expanded-answer" : "";
-  return `tree-node role-${node.value.role}${query}${draft}${temporaryDraft}${generating}${expanded}`;
+  return `tree-node role-${node.value.role}${query}${draft}${temporaryDraft}${generating}${image}${expanded}`;
 }
 
 function createEdgeClass(child: PositionedNode): string {
@@ -1849,6 +2076,50 @@ function createAnswerShimmer(node: PositionedNode): SVGForeignObjectElement {
   return shimmer;
 }
 
+function createImageAnswerGraphic(node: PositionedNode): SVGGElement {
+  const width = getNodeWidth(node);
+  const height = getNodeHeight(node);
+  const graphic = svgElement("g");
+  const left = -width / 2 + ANSWER_TEXT_HORIZONTAL_PADDING;
+  const top = -height / 2 + ANSWER_TEXT_TOP_PADDING;
+  const innerWidth = width - ANSWER_TEXT_HORIZONTAL_PADDING * 2;
+  const panelTop = top + 25;
+  const panelHeight = height - ANSWER_TEXT_TOP_PADDING - ANSWER_TEXT_BOTTOM_PADDING - 25;
+  const panel = svgElement("rect");
+  const image = svgElement("image");
+  const title = svgElement("text");
+
+  graphic.setAttribute("class", "image-response");
+
+  title.setAttribute("class", "node-answer-title");
+  title.setAttribute("x", String(left));
+  title.setAttribute("y", String(top + ANSWER_TITLE_FONT_SIZE));
+  title.textContent = ellipsizeMeasuredText(
+    getAnswerDisplayTitle(node.value),
+    innerWidth,
+    ANSWER_TITLE_FONT,
+    ANSWER_TITLE_FONT_SIZE,
+  );
+
+  panel.setAttribute("class", "image-response-panel");
+  panel.setAttribute("x", String(left));
+  panel.setAttribute("y", String(panelTop));
+  panel.setAttribute("width", String(innerWidth));
+  panel.setAttribute("height", String(panelHeight));
+  panel.setAttribute("rx", "7");
+
+  image.setAttribute("class", "image-response-media");
+  image.setAttribute("href", node.value.imageSrc ?? "");
+  image.setAttribute("x", String(left + 8));
+  image.setAttribute("y", String(panelTop + 8));
+  image.setAttribute("width", String(innerWidth - 16));
+  image.setAttribute("height", String(panelHeight - 16));
+  image.setAttribute("preserveAspectRatio", "xMidYMid meet");
+
+  graphic.append(title, panel, image);
+  return graphic;
+}
+
 function isQueryNode(node: PositionedNode): boolean {
   return node.value.kind === "query";
 }
@@ -1861,6 +2132,10 @@ function isTemporaryDraftNode(node: PositionedNode): boolean {
   return isEmptyAnswerDraft(node.id, node.value);
 }
 
+function isImageAnswerValue(value: ExplorationItem): boolean {
+  return value.kind === "answer" && value.answerType === "image" && Boolean(value.imageSrc);
+}
+
 function getNodeWidth(node: PositionedNode): number {
   return getNodeValueWidth(node.value);
 }
@@ -1871,11 +2146,13 @@ function getNodeHeight(node: PositionedNode): number {
 
 function getNodeValueWidth(value: ExplorationItem): number {
   if (value.kind === "query") return getQueryTextMetrics(getNodeDisplayText(value)).width;
+  if (isImageAnswerValue(value)) return IMAGE_ANSWER_NODE_WIDTH;
   return ANSWER_NODE_WIDTH;
 }
 
 function getNodeValueHeight(value: ExplorationItem): number {
   if (value.kind === "query") return getQueryTextMetrics(getNodeDisplayText(value)).height;
+  if (isImageAnswerValue(value)) return IMAGE_ANSWER_NODE_HEIGHT;
   return getAnswerTextMetrics(value).height;
 }
 
@@ -1997,6 +2274,7 @@ function createQueryEditor(node: PositionedNode): SVGForeignObjectElement {
   const height = getNodeHeight(node);
   const editor = svgElement("foreignObject");
   const input = document.createElement("input");
+  let editScrollSnapshot = getMapScrollSnapshot();
 
   editor.setAttribute("class", "query-editor");
   editor.setAttribute("x", String(-width / 2 + 24));
@@ -2007,13 +2285,22 @@ function createQueryEditor(node: PositionedNode): SVGForeignObjectElement {
   input.type = "text";
   input.placeholder = "Ask something...";
   input.value = node.value.title;
+  input.addEventListener("focus", () => {
+    editScrollSnapshot = getMapScrollSnapshot();
+    restoreMapScroll(editScrollSnapshot);
+  });
   input.addEventListener("click", (event) => event.stopPropagation());
   input.addEventListener("pointerdown", (event) => event.stopPropagation());
+  input.addEventListener("beforeinput", () => {
+    editScrollSnapshot = getMapScrollSnapshot();
+  });
   input.addEventListener("keydown", (event) => {
+    editScrollSnapshot = getMapScrollSnapshot();
     if (event.key === "Escape") {
       event.preventDefault();
       input.blur();
       focusNode(node.id);
+      restoreMapScroll(editScrollSnapshot);
       return;
     }
 
@@ -2024,10 +2311,33 @@ function createQueryEditor(node: PositionedNode): SVGForeignObjectElement {
   });
   input.addEventListener("input", () => {
     updateDraftQueryFromInput(node.id, input.value);
+    restoreMapScroll(editScrollSnapshot);
   });
 
   editor.append(input);
   return editor;
+}
+
+function getMapScrollSnapshot(): ScrollSnapshot {
+  return {
+    left: mapPanel.scrollLeft,
+    top: mapPanel.scrollTop,
+  };
+}
+
+function restoreMapScroll(snapshot: ScrollSnapshot): void {
+  setMapScroll(snapshot);
+  requestAnimationFrame(() => {
+    if (!demoStarted) return;
+
+    setMapScroll(snapshot);
+    minimapController?.updatePosition();
+  });
+}
+
+function setMapScroll(snapshot: ScrollSnapshot): void {
+  mapPanel.scrollLeft = snapshot.left;
+  mapPanel.scrollTop = snapshot.top;
 }
 
 function handleDraftQueryKeyboardInput(id: string, event: KeyboardEvent): boolean {
@@ -2365,8 +2675,17 @@ function getInspectorTitle(value: ExplorationItem): string {
   return value.title || value.content;
 }
 
+function getInspectorKind(value: ExplorationItem): string {
+  if (isImageAnswerValue(value)) return "image answer";
+  return value.kind;
+}
+
+function getInspectorContent(value: ExplorationItem): string {
+  return value.content;
+}
+
 function createNodeAriaLabel(node: PositionedNode): string {
-  return `${node.value.kind} ${node.value.title}, ${node.value.status}`;
+  return `${getInspectorKind(node.value)} ${node.value.title}, ${node.value.status}`;
 }
 
 function createNodeTextClipId(nodeId: string): string {
@@ -2601,10 +2920,10 @@ function renderInspector(id: string): void {
 
   inspectorNodeId = id;
   explorationStore.nodeTitle = getInspectorTitle(node.value);
-  explorationStore.nodeKind = node.value.kind;
+  explorationStore.nodeKind = getInspectorKind(node.value);
   explorationStore.nodeStatus = node.value.status;
   explorationStore.nodeScore = node.value.status === "generating" ? "-" : `${node.value.score}%`;
-  explorationStore.nodeContent = node.value.content;
+  explorationStore.nodeContent = getInspectorContent(node.value);
 
   updateActionButtons(id);
 }
@@ -3002,6 +3321,7 @@ function getNodeRenderMode(node: PositionedNode): string {
   if (isDraftQueryNode(node)) return "query-draft";
   if (isQueryNode(node)) return "query";
   if (node.value.status === "generating") return "answer-generating";
+  if (isImageAnswerValue(node.value)) return "answer-image";
   return node.value.expanded ? "answer-expanded" : "answer";
 }
 

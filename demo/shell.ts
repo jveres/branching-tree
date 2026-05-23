@@ -5,7 +5,6 @@ import {
   openAiSettings,
   setAiApiKey,
   setAiBaseUrl,
-  setAiSystemInstruction,
 } from "./shared/ai-settings";
 import type { DemoCleanup, DemoPageModule } from "./shared/page";
 import shellStore, { type DemoId, demoOptions, setShellSummary } from "./shared/shell-store";
@@ -105,13 +104,13 @@ function AiSettingsDialog(): ArrowTemplate {
           <span>System instruction</span>
           <textarea
             rows="6"
+            readonly
             spellcheck="true"
-            @input="${handleSystemInstructionInput}"
           >${() => aiSettingsStore.systemInstruction}</textarea>
         </label>
         <p class="settings-note">
-          Stored only in this browser's localStorage. The demo sends requests directly from the
-          page to the configured OpenAI-compatible endpoint.
+          Base URL and API key are stored only in this browser's localStorage. The system
+          instruction is built into the demo and is shown read-only.
         </p>
         <button type="button" class="action-button" @click="${closeAiSettings}">Done</button>
       </section>
@@ -131,11 +130,6 @@ function handleBaseUrlInput(event: Event): void {
 function handleApiKeyInput(event: Event): void {
   const target = event.currentTarget;
   if (target instanceof HTMLInputElement) setAiApiKey(target.value);
-}
-
-function handleSystemInstructionInput(event: Event): void {
-  const target = event.currentTarget;
-  if (target instanceof HTMLTextAreaElement) setAiSystemInstruction(target.value);
 }
 
 function handleDemoSelect(event: Event): void {
