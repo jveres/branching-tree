@@ -1,8 +1,10 @@
 import {
   BranchingTree,
   ROOT_NODE_ID,
+  type BranchingTreeNode,
   type BranchingTreePathNeighborhoodEdge,
   type BranchingTreePathNeighborhoodNode,
+  type BranchingTreeState,
   type Identified,
 } from "../../branching-tree";
 import { setShellSummary } from "../shared/shell-store";
@@ -103,6 +105,22 @@ type GenerationContext = {
   signal: AbortSignal;
 };
 
+type PersistedExploration = {
+  version: 1;
+  tree: BranchingTreeState<ExplorationItem>;
+  selectedNodeId: string | null;
+  nextSerial: number;
+  viewport: PersistedViewport | null;
+};
+
+type PersistedViewport = {
+  x: number;
+  y: number;
+  scale: number;
+  scrollLeft: number;
+  scrollTop: number;
+};
+
 type TextLayout = {
   lines: string[];
   width: number;
@@ -152,6 +170,8 @@ const CHILD_INDICATOR_STEM = 10;
 const CHILD_INDICATOR_DEPTH = CHILD_INDICATOR_STEM + CHILD_INDICATOR_RADIUS * 2;
 const EDGE_BADGE_CLEARANCE = 8;
 const NODE_SCROLL_MARGIN = 48;
+const STORAGE_KEY = "branching-tree:exploration-tree:v1";
+const STORAGE_VERSION = 1;
 
 const answerOpenings = [
   "A useful way to approach this is to separate the problem into a stable spine and a few deliberate alternatives.",
@@ -199,6 +219,8 @@ let resizeHandler: (() => void) | null = null;
 let nextSerial = 1;
 let demoStarted = false;
 let generationRun = 0;
+let persistenceSuspended = false;
+let viewportPersistFrameId: number | null = null;
 const activeGenerations = new Map<string, GenerationContext>();
 
 export function startExplorationDemo(): () => void {
@@ -319,10 +341,11 @@ export function startExplorationDemo(): () => void {
   mapPanel.addEventListener("dragstart", (event) => event.preventDefault());
   mapPanel.addEventListener("selectstart", (event) => event.preventDefault());
   mapPanel.addEventListener("wheel", (event) => handleWheel(event), { passive: false });
+  mapPanel.addEventListener("scroll", scheduleViewportPersistence, { passive: true });
   resizeHandler = () => scheduleViewportResize();
   window.addEventListener("resize", resizeHandler);
 
-  resetExploration();
+  if (!restoreExploration()) resetExploration();
   return stopExplorationDemo;
 }
 
@@ -335,6 +358,10 @@ function stopExplorationDemo(): void {
   if (resizeAnimationId !== null) {
     cancelAnimationFrame(resizeAnimationId);
     resizeAnimationId = null;
+  }
+  if (viewportPersistFrameId !== null) {
+    cancelAnimationFrame(viewportPersistFrameId);
+    viewportPersistFrameId = null;
   }
   if (resizeHandler) {
     window.removeEventListener("resize", resizeHandler);
@@ -357,6 +384,262 @@ function resetExploration(): void {
   refreshView(tree.head?.id ?? root.id, true);
   centerMapAtScale(INITIAL_ZOOM);
   explorationStore.actionTime = formatMs(performance.now() - started);
+}
+
+function restoreExploration(): boolean {
+  const persisted = readPersistedExploration();
+  if (!persisted) return false;
+
+  abortGeneration();
+  persistenceSuspended = true;
+  try {
+    tree = new BranchingTree<ExplorationItem>(persisted.tree);
+    nextSerial = Math.max(persisted.nextSerial, inferNextSerial(persisted.tree));
+    positionCache = new Map();
+    resetSvgLayers();
+
+    const selectedNodeId = getRestoredSelectedNodeId(persisted.selectedNodeId);
+    if (selectedNodeId) restoreSelectedPath(selectedNodeId);
+
+    refreshView(selectedNodeId, true);
+    if (persisted.viewport) {
+      restoreViewport(persisted.viewport);
+    } else {
+      centerMapAtScale(INITIAL_ZOOM);
+    }
+  } finally {
+    persistenceSuspended = false;
+  }
+  persistExploration();
+  return true;
+}
+
+function restoreSelectedPath(selectedNodeId: string): void {
+  tree.selectPathTo(selectedNodeId);
+
+  const value = tree.getValue(selectedNodeId);
+  if (value?.kind !== "answer" || value.status !== "complete") return;
+
+  const draftId = ensureDraftQuestionAfterAnswer(selectedNodeId);
+  if (draftId) tree.selectPathTo(draftId);
+}
+
+function getRestoredSelectedNodeId(selectedNodeId: string | null): string | null {
+  if (selectedNodeId && tree.hasNode(selectedNodeId)) return selectedNodeId;
+  return tree.head?.id ?? tree.getFullTopology().nodes[0]?.nodeId ?? null;
+}
+
+function readPersistedExploration(): PersistedExploration | null {
+  const storage = getLocalStorage();
+  if (!storage) return null;
+
+  const raw = storage.getItem(STORAGE_KEY);
+  if (!raw) return null;
+
+  try {
+    const parsed = JSON.parse(raw) as Partial<PersistedExploration>;
+    if (parsed.version !== STORAGE_VERSION || !parsed.tree) return null;
+
+    const state = sanitizePersistedState(parsed.tree);
+    const validatedTree = new BranchingTree<ExplorationItem>(state);
+    const selectedNodeId =
+      typeof parsed.selectedNodeId === "string" && state.nodes[parsed.selectedNodeId]
+        ? parsed.selectedNodeId
+        : null;
+
+    return {
+      version: STORAGE_VERSION,
+      tree: validatedTree.getState(),
+      selectedNodeId,
+      nextSerial: normalizeNextSerial(parsed.nextSerial),
+      viewport: normalizePersistedViewport(parsed.viewport),
+    };
+  } catch {
+    storage.removeItem(STORAGE_KEY);
+    return null;
+  }
+}
+
+function persistExploration(preferredSelectedNodeId = inspectorNodeId): void {
+  if (persistenceSuspended) return;
+
+  const storage = getLocalStorage();
+  if (!storage) return;
+
+  try {
+    const state = sanitizePersistedState(tree.getState());
+    const selectedNodeId =
+      preferredSelectedNodeId && state.nodes[preferredSelectedNodeId]
+        ? preferredSelectedNodeId
+        : null;
+    const snapshot: PersistedExploration = {
+      version: STORAGE_VERSION,
+      tree: state,
+      selectedNodeId,
+      nextSerial,
+      viewport: getPersistedViewport(),
+    };
+
+    storage.setItem(STORAGE_KEY, JSON.stringify(snapshot));
+  } catch {
+    // localStorage can be unavailable or full; persistence is best-effort for the demo.
+  }
+}
+
+function sanitizePersistedState(
+  state: BranchingTreeState<ExplorationItem>,
+): BranchingTreeState<ExplorationItem> {
+  const nodes = clonePersistedNodes(state.nodes);
+  const sanitized: BranchingTreeState<ExplorationItem> = {
+    rootId: state.rootId,
+    nodes,
+  };
+  const removedIds = collectGeneratingSubtreeIds(sanitized);
+
+  for (const node of Object.values(sanitized.nodes)) {
+    node.childrenIds = node.childrenIds.filter((childId) => !removedIds.has(childId));
+  }
+
+  for (const id of removedIds) delete sanitized.nodes[id];
+  normalizeSelectedIndexes(sanitized);
+  return sanitized;
+}
+
+function clonePersistedNodes(
+  nodes: Record<string, BranchingTreeNode<ExplorationItem>>,
+): Record<string, BranchingTreeNode<ExplorationItem>> {
+  const copy: Record<string, BranchingTreeNode<ExplorationItem>> = {};
+
+  for (const [id, node] of Object.entries(nodes)) {
+    const clonedNode: BranchingTreeNode<ExplorationItem> = {
+      ...node,
+      childrenIds: [...node.childrenIds],
+    };
+    if (node.value) clonedNode.value = { ...node.value };
+    copy[id] = clonedNode;
+  }
+
+  return copy;
+}
+
+function getPersistedViewport(): PersistedViewport {
+  return {
+    x: camera.x,
+    y: camera.y,
+    scale: camera.scale,
+    scrollLeft: mapPanel.scrollLeft,
+    scrollTop: mapPanel.scrollTop,
+  };
+}
+
+function normalizePersistedViewport(value: unknown): PersistedViewport | null {
+  if (!isRecord(value)) return null;
+  const { x, y, scale, scrollLeft, scrollTop } = value;
+  if (
+    !isFiniteNumber(x) ||
+    !isFiniteNumber(y) ||
+    !isFiniteNumber(scale) ||
+    !isFiniteNumber(scrollLeft) ||
+    !isFiniteNumber(scrollTop)
+  ) {
+    return null;
+  }
+
+  return {
+    x,
+    y,
+    scale: clamp(scale, MIN_ZOOM, MAX_ZOOM),
+    scrollLeft: Math.max(0, scrollLeft),
+    scrollTop: Math.max(0, scrollTop),
+  };
+}
+
+function restoreViewport(viewport: PersistedViewport): void {
+  cancelCameraAnimation();
+  camera = {
+    x: viewport.x,
+    y: viewport.y,
+    scale: clamp(viewport.scale, MIN_ZOOM, MAX_ZOOM),
+  };
+  const bounds = mapPanel.getBoundingClientRect();
+  applyCamera({
+    bottom: viewport.scrollTop + bounds.height,
+    right: viewport.scrollLeft + bounds.width,
+  });
+  mapPanel.scrollLeft = viewport.scrollLeft;
+  mapPanel.scrollTop = viewport.scrollTop;
+  applyCamera();
+}
+
+function collectGeneratingSubtreeIds(state: BranchingTreeState<ExplorationItem>): Set<string> {
+  const ids = new Set<string>();
+
+  for (const [id, node] of Object.entries(state.nodes)) {
+    if (id === state.rootId || node.value?.status !== "generating") continue;
+    collectSubtreeIds(state, id, ids);
+  }
+
+  return ids;
+}
+
+function collectSubtreeIds(
+  state: BranchingTreeState<ExplorationItem>,
+  startId: string,
+  ids: Set<string>,
+): void {
+  const stack = [startId];
+
+  while (stack.length > 0) {
+    const id = stack.pop()!;
+    if (ids.has(id)) continue;
+
+    ids.add(id);
+    stack.push(...(state.nodes[id]?.childrenIds ?? []));
+  }
+}
+
+function normalizeSelectedIndexes(state: BranchingTreeState<ExplorationItem>): void {
+  for (const node of Object.values(state.nodes)) {
+    node.selectedChildIndex =
+      node.childrenIds.length === 0
+        ? 0
+        : clamp(node.selectedChildIndex, 0, node.childrenIds.length - 1);
+  }
+}
+
+function inferNextSerial(state: BranchingTreeState<ExplorationItem>): number {
+  let maxSerial = 0;
+
+  for (const node of Object.values(state.nodes)) {
+    maxSerial = Math.max(maxSerial, getTrailingSerial(node.id), getTrailingSerial(node.value?.id));
+  }
+
+  return maxSerial + 1;
+}
+
+function getTrailingSerial(id: string | undefined): number {
+  const match = id?.match(/-(\d+)$/);
+  return match ? Number(match[1]) : 0;
+}
+
+function normalizeNextSerial(value: unknown): number {
+  return typeof value === "number" && Number.isSafeInteger(value) && value > 0 ? value : 1;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
+function isFiniteNumber(value: unknown): value is number {
+  return typeof value === "number" && Number.isFinite(value);
+}
+
+function getLocalStorage(): Storage | null {
+  try {
+    return typeof window === "undefined" ? null : window.localStorage;
+  } catch {
+    return null;
+  }
 }
 
 function createDraftQuestion(turn: number): ExplorationItem {
@@ -760,6 +1043,7 @@ function refreshView(preferredInspectorId: string | null, structureChanged = fal
     renderEmptyInspector();
   }
   updateMetrics();
+  persistExploration(nextInspectorId);
   return nextInspectorId;
 }
 
@@ -1375,6 +1659,7 @@ function updateDraftQueryFromInput(id: string, inputValue: string): void {
 
   tree.update({ ...value, title: inputValue, content: inputValue || "Ask something..." });
   queryTextMetricsCache.clear();
+  persistExploration(id);
 }
 
 function renderNodeLabel(label: SVGTextElement, node: PositionedNode): void {
@@ -1900,6 +2185,7 @@ function fitMap(): void {
   camera = { x: 0, y: 0, scale: clamp(nextScale, MIN_ZOOM, MAX_ZOOM) };
   centerCamera(content, bounds);
   applyCamera();
+  persistExploration();
 }
 
 function centerMapAtScale(scale: number): void {
@@ -1912,6 +2198,7 @@ function centerMapAtScale(scale: number): void {
   camera = { x: 0, y: 0, scale: clamp(scale, MIN_ZOOM, MAX_ZOOM) };
   centerCamera(getContentBounds(), bounds);
   applyCamera();
+  persistExploration();
 }
 
 function centerCamera(
@@ -1987,10 +2274,11 @@ function zoomAt(clientX: number, clientY: number, factor: number): void {
     y: pointY - CANVAS_PADDING - contentY * nextScale,
   };
   applyCamera();
+  persistExploration();
 }
 
-function applyCamera(): void {
-  const canvas = getCanvasSize();
+function applyCamera(minimumVisibleArea?: { right: number; bottom: number }): void {
+  const canvas = getCanvasSize(minimumVisibleArea);
   svg.setAttribute("width", String(Math.ceil(canvas.width)));
   svg.setAttribute("height", String(Math.ceil(canvas.height)));
   svg.setAttribute("viewBox", `0 0 ${canvas.width} ${canvas.height}`);
@@ -2012,7 +2300,19 @@ function scheduleViewportResize(): void {
   });
 }
 
-function getCanvasSize(): { width: number; height: number } {
+function scheduleViewportPersistence(): void {
+  if (persistenceSuspended || viewportPersistFrameId !== null) return;
+
+  viewportPersistFrameId = requestAnimationFrame(() => {
+    viewportPersistFrameId = null;
+    if (demoStarted) persistExploration();
+  });
+}
+
+function getCanvasSize(minimumVisibleArea?: { right: number; bottom: number }): {
+  width: number;
+  height: number;
+} {
   const bounds = mapPanel.getBoundingClientRect();
   const content = getContentBounds();
   const transformedRight =
@@ -2023,8 +2323,13 @@ function getCanvasSize(): { width: number; height: number } {
   const visibleBottom = mapPanel.scrollTop + bounds.height;
 
   return {
-    width: Math.max(bounds.width, visibleRight, transformedRight),
-    height: Math.max(bounds.height, visibleBottom, transformedBottom),
+    width: Math.max(bounds.width, visibleRight, minimumVisibleArea?.right ?? 0, transformedRight),
+    height: Math.max(
+      bounds.height,
+      visibleBottom,
+      minimumVisibleArea?.bottom ?? 0,
+      transformedBottom,
+    ),
   };
 }
 
@@ -2052,6 +2357,8 @@ function finishDrag(event: PointerEvent): void {
   suppressNextClick = moved || nodeId !== null;
   if (!moved && nodeId) {
     selectNodeAndFocus(nodeId);
+  } else if (moved) {
+    persistExploration();
   }
 }
 
