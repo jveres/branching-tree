@@ -1,4 +1,10 @@
 import { html, type ArrowTemplate } from "@arrow-js/core";
+import {
+  aiSettingsStore,
+  getAiSettingsStatus,
+  refreshAiModelList,
+  setAiModel,
+} from "../shared/ai-settings";
 import type { DemoCleanup, DemoMountRoots } from "../shared/page";
 import { explorationActions } from "./actions";
 import { startExplorationDemo } from "./controller";
@@ -6,6 +12,7 @@ import explorationStore from "./store";
 
 export function mountDemo({ pageRoot, toolbarRoot }: DemoMountRoots): DemoCleanup {
   pageRoot.classList.add("is-exploration-demo");
+  void refreshAiModelList();
   ExplorationToolbar()(toolbarRoot);
   ExplorationPage()(pageRoot);
   const cleanup = startExplorationDemo();
@@ -79,6 +86,39 @@ function ExplorationPage(): ArrowTemplate {
 
       <aside class="inspector" aria-label="Exploration details">
         <section class="inspect-section">
+          <h2>AI</h2>
+          <label class="model-field">
+            <span>Model</span>
+            <select
+              disabled="${() =>
+                aiSettingsStore.modelListLoading || aiSettingsStore.modelOptions.length === 0}"
+              @change="${handleModelSelect}"
+            >
+              ${() =>
+                aiSettingsStore.modelOptions.map((model) =>
+                  html`
+                  <option value="${model}" selected="${() => aiSettingsStore.model === model}">
+                    ${model}
+                  </option>
+                `.key(model),
+                )}
+            </select>
+          </label>
+          <button
+            type="button"
+            class="action-button"
+            disabled="${() => aiSettingsStore.modelListLoading}"
+            @click="${handleRefreshModels}"
+          >
+            ${() => (aiSettingsStore.modelListLoading ? "Loading models" : "Refresh models")}
+          </button>
+          <p class="ai-status">
+            ${() =>
+              explorationStore.aiStatus || aiSettingsStore.modelListStatus || getAiSettingsStatus()}
+          </p>
+        </section>
+
+        <section class="inspect-section">
           <h2>${() => explorationStore.nodeTitle}</h2>
           <dl class="message-meta">
             <div>
@@ -110,14 +150,6 @@ function ExplorationPage(): ArrowTemplate {
             </button>
             <button
               type="button"
-              class="action-button"
-              disabled="${() => !explorationStore.canToggleResponse}"
-              @click="${explorationActions.toggleResponse}"
-            >
-              ${() => (explorationStore.responseExpanded ? "Collapse response" : "Expand response")}
-            </button>
-            <button
-              type="button"
               class="action-button is-danger"
               disabled="${() => !explorationStore.canDelete}"
               @click="${explorationActions.deleteNode}"
@@ -132,6 +164,18 @@ function ExplorationPage(): ArrowTemplate {
       </aside>
     </section>
   `;
+}
+
+function handleModelSelect(event: Event): void {
+  const target = event.currentTarget;
+  if (target instanceof HTMLSelectElement) {
+    setAiModel(target.value);
+    explorationStore.aiStatus = "";
+  }
+}
+
+function handleRefreshModels(): void {
+  void refreshAiModelList();
 }
 
 function Metric(label: string, value: () => string): ArrowTemplate {

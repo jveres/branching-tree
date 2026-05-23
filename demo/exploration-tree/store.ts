@@ -14,9 +14,8 @@ export type ExplorationStore = {
   nodeScore: string;
   nodeContent: string;
 
+  aiStatus: string;
   canCreateVersion: boolean;
-  canToggleResponse: boolean;
-  responseExpanded: boolean;
   canDelete: boolean;
 };
 
@@ -34,9 +33,8 @@ const explorationStore = reactive<ExplorationStore>({
   nodeScore: "-",
   nodeContent: "",
 
+  aiStatus: "",
   canCreateVersion: false,
-  canToggleResponse: false,
-  responseExpanded: false,
   canDelete: false,
 });
 

@@ -120,6 +120,7 @@ button {
 
 .demo-page.is-exploration-demo {
   --path-edge: 0 0% 7%;
+  --ring: var(--exploration-node-stroke);
 }
 
 @media (prefers-color-scheme: dark) {
@@ -152,6 +153,12 @@ button {
   gap: 8px;
   flex-wrap: wrap;
   justify-content: flex-end;
+}
+
+.topbar-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
 .segmented {
@@ -238,9 +245,130 @@ button {
 .version-button:focus-visible,
 .path-button:focus-visible,
 .demo-picker select:focus-visible,
-.minimap-toggle:focus-visible {
+.minimap-toggle:focus-visible,
+.settings-close:focus-visible,
+.settings-field input:focus-visible,
+.settings-field textarea:focus-visible,
+.model-field input:focus-visible,
+.model-field select:focus-visible {
   outline: 2px solid hsl(var(--ring));
   outline-offset: 2px;
+}
+
+.settings-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  display: none;
+  align-items: flex-start;
+  justify-content: flex-end;
+  padding: 76px 20px 20px;
+  background: hsl(222 47% 11% / 0.16);
+}
+
+.settings-backdrop.is-open {
+  display: flex;
+}
+
+.settings-dialog {
+  width: min(360px, 100%);
+  padding: 16px;
+  border: 1px solid hsl(var(--border));
+  border-radius: var(--radius);
+  background: hsl(var(--popover));
+  color: hsl(var(--popover-foreground));
+  box-shadow: 0 18px 48px hsl(222 47% 11% / 0.18);
+}
+
+.settings-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.settings-header h2 {
+  margin: 0;
+  font-size: 15px;
+  line-height: 1.3;
+}
+
+.settings-close {
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 1px solid hsl(var(--border));
+  border-radius: var(--radius);
+  background: hsl(var(--background));
+  color: hsl(var(--foreground));
+  cursor: pointer;
+  font-size: 18px;
+  line-height: 1;
+}
+
+.settings-field,
+.model-field {
+  display: grid;
+  gap: 6px;
+}
+
+.settings-field {
+  margin-bottom: 12px;
+}
+
+.settings-field span,
+.model-field span {
+  color: hsl(var(--muted-foreground));
+  font-size: 11px;
+  font-weight: 650;
+}
+
+.settings-field input,
+.settings-field textarea,
+.model-field input,
+.model-field select {
+  width: 100%;
+  padding: 0 10px;
+  border: 1px solid hsl(var(--input));
+  border-radius: var(--radius);
+  background: hsl(var(--background));
+  color: hsl(var(--foreground));
+  font: inherit;
+  font-size: 13px;
+}
+
+.settings-field input,
+.model-field input,
+.model-field select {
+  height: 34px;
+}
+
+.model-field select {
+  cursor: pointer;
+}
+
+.settings-field textarea {
+  min-height: 124px;
+  padding: 9px 10px;
+  resize: vertical;
+  line-height: 1.45;
+}
+
+.settings-note,
+.ai-status {
+  margin: 0;
+  color: hsl(var(--muted-foreground));
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.settings-note {
+  margin-bottom: 14px;
+}
+
+.model-field {
+  margin-bottom: 10px;
 }
 
 .metrics {
@@ -550,6 +678,29 @@ body.is-map-dragging {
   fill: hsl(var(--exploration-selected-fill));
 }
 
+.demo-page.is-exploration-demo .tree-node.is-temporary-draft,
+.demo-page.is-exploration-demo .tree-node.is-temporary-draft:focus-visible {
+  opacity: 0.52;
+}
+
+.demo-page.is-exploration-demo .tree-node.is-temporary-draft .node-card,
+.demo-page.is-exploration-demo .tree-node.is-temporary-draft:focus-visible .node-card {
+  fill: hsl(var(--exploration-node-fill));
+  stroke: hsl(var(--quote-stroke) / 0.72);
+  stroke-width: 1.35;
+}
+
+.demo-page.is-exploration-demo .tree-node.is-temporary-draft.is-head,
+.demo-page.is-exploration-demo .tree-node.is-temporary-draft.is-head:focus-visible {
+  opacity: 1;
+}
+
+.demo-page.is-exploration-demo .tree-node.is-temporary-draft.is-head .node-card,
+.demo-page.is-exploration-demo .tree-node.is-temporary-draft.is-head:focus-visible .node-card {
+  fill: hsl(var(--exploration-selected-fill));
+  stroke: hsl(var(--quote-stroke));
+}
+
 .node-role,
 .node-label,
 .node-meta,
@@ -567,6 +718,18 @@ body.is-map-dragging {
 .node-label {
   font-size: 12px;
   font-weight: 650;
+  fill: hsl(var(--foreground));
+}
+
+.node-answer-title {
+  font-size: 12px;
+  font-weight: 750;
+  fill: hsl(var(--foreground));
+}
+
+.node-answer-body {
+  font-size: 12px;
+  font-weight: 500;
   fill: hsl(var(--foreground));
 }
 

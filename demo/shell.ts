@@ -1,4 +1,12 @@
 import { html, type ArrowTemplate } from "@arrow-js/core";
+import {
+  aiSettingsStore,
+  closeAiSettings,
+  openAiSettings,
+  setAiApiKey,
+  setAiBaseUrl,
+  setAiSystemInstruction,
+} from "./shared/ai-settings";
 import type { DemoCleanup, DemoPageModule } from "./shared/page";
 import shellStore, { type DemoId, demoOptions, setShellSummary } from "./shared/shell-store";
 
@@ -28,11 +36,106 @@ function DemoShell(): ArrowTemplate {
           </label>
           <p class="demo-summary">${() => shellStore.summary}</p>
         </div>
-        <div class="toolbar" id="demo-toolbar" aria-label="Demo controls"></div>
+        <div class="topbar-right">
+          <button
+            type="button"
+            class="icon-button"
+            title="AI settings"
+            aria-label="AI settings"
+            @click="${openAiSettings}"
+          >
+            ⚙
+          </button>
+          <div class="toolbar" id="demo-toolbar" aria-label="Demo controls"></div>
+        </div>
       </header>
+      ${AiSettingsDialog()}
       <div id="demo-page" class="demo-page"></div>
     </main>
   `;
+}
+
+function AiSettingsDialog(): ArrowTemplate {
+  return html`
+    <div
+      class="${() =>
+        aiSettingsStore.settingsOpen ? "settings-backdrop is-open" : "settings-backdrop"}"
+      aria-hidden="${() => String(!aiSettingsStore.settingsOpen)}"
+      @click="${handleSettingsBackdropClick}"
+    >
+      <section
+        class="settings-dialog"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="ai-settings-title"
+      >
+        <div class="settings-header">
+          <h2 id="ai-settings-title">AI settings</h2>
+          <button
+            type="button"
+            class="settings-close"
+            title="Close settings"
+            aria-label="Close settings"
+            @click="${closeAiSettings}"
+          >
+            ×
+          </button>
+        </div>
+        <label class="settings-field">
+          <span>Base URL</span>
+          <input
+            type="url"
+            autocomplete="off"
+            spellcheck="false"
+            value="${() => aiSettingsStore.baseUrl}"
+            @input="${handleBaseUrlInput}"
+          />
+        </label>
+        <label class="settings-field">
+          <span>API key</span>
+          <input
+            type="password"
+            autocomplete="off"
+            spellcheck="false"
+            value="${() => aiSettingsStore.apiKey}"
+            @input="${handleApiKeyInput}"
+          />
+        </label>
+        <label class="settings-field">
+          <span>System instruction</span>
+          <textarea
+            rows="6"
+            spellcheck="true"
+            @input="${handleSystemInstructionInput}"
+          >${() => aiSettingsStore.systemInstruction}</textarea>
+        </label>
+        <p class="settings-note">
+          Stored only in this browser's localStorage. The demo sends requests directly from the
+          page to the configured OpenAI-compatible endpoint.
+        </p>
+        <button type="button" class="action-button" @click="${closeAiSettings}">Done</button>
+      </section>
+    </div>
+  `;
+}
+
+function handleSettingsBackdropClick(event: Event): void {
+  if (event.target === event.currentTarget) closeAiSettings();
+}
+
+function handleBaseUrlInput(event: Event): void {
+  const target = event.currentTarget;
+  if (target instanceof HTMLInputElement) setAiBaseUrl(target.value);
+}
+
+function handleApiKeyInput(event: Event): void {
+  const target = event.currentTarget;
+  if (target instanceof HTMLInputElement) setAiApiKey(target.value);
+}
+
+function handleSystemInstructionInput(event: Event): void {
+  const target = event.currentTarget;
+  if (target instanceof HTMLTextAreaElement) setAiSystemInstruction(target.value);
 }
 
 function handleDemoSelect(event: Event): void {

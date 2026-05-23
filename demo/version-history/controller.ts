@@ -138,6 +138,7 @@ let minimapController: DemoMinimap<DemoMessage> | null = null;
 
 let tree = new BranchingTree<DemoMessage>();
 let layout: LayoutModel = createEmptyLayout();
+let contentBounds: ContentBounds = createEmptyContentBounds();
 let nodeElements = new Map<string, SVGGElement>();
 let edgeElements = new Map<string, SVGPathElement>();
 let positionCache = new Map<string, CachedPosition>();
@@ -348,6 +349,7 @@ function loadState(state: BranchingTreeState<DemoMessage>, nextSeed: number): vo
   positionCache = new Map();
   resetSvgLayers();
   layout = createVisibleLayout();
+  contentBounds = getLayoutContentBounds();
   syncMap(layout);
   fitMap();
 
@@ -1045,6 +1047,7 @@ function selectNode(id: string, measure = true): void {
 
 function refreshView(preferredInspectorId: string | null, structureChanged = false): void {
   layout = createVisibleLayout();
+  contentBounds = getLayoutContentBounds();
   syncMap(layout);
 
   const nextInspectorId = getInspectableId(preferredInspectorId);
@@ -1345,11 +1348,11 @@ function centerCamera(
 }
 
 function getContentBounds(): ContentBounds {
-  return getLayoutContentBounds();
+  return contentBounds;
 }
 
 function getLayoutContentBounds(): ContentBounds {
-  if (layout.nodes.length === 0) return { left: 0, top: 0, width: 1, height: 1 };
+  if (layout.nodes.length === 0) return createEmptyContentBounds();
 
   let left = Infinity;
   let right = -Infinity;
@@ -1575,6 +1578,10 @@ function createEmptyLayout(): LayoutModel {
     messageCount: 0,
     linkCount: 0,
   };
+}
+
+function createEmptyContentBounds(): ContentBounds {
+  return { left: 0, top: 0, width: 1, height: 1 };
 }
 
 function toggleClasses<T extends Element>(

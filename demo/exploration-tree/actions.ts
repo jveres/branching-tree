@@ -4,7 +4,6 @@ export type ExplorationActions = {
   fitMap: () => void;
   resetExploration: () => void;
   selectNode: (id: string) => void;
-  toggleResponse: () => void;
   zoomIn: () => void;
   zoomOut: () => void;
 };
@@ -17,7 +16,6 @@ const currentActions: ExplorationActions = {
   fitMap: noop,
   resetExploration: noop,
   selectNode: noop,
-  toggleResponse: noop,
   zoomIn: noop,
   zoomOut: noop,
 };
@@ -28,7 +26,6 @@ export const explorationActions: ExplorationActions = {
   fitMap: () => currentActions.fitMap(),
   resetExploration: () => currentActions.resetExploration(),
   selectNode: (id) => currentActions.selectNode(id),
-  toggleResponse: () => currentActions.toggleResponse(),
   zoomIn: () => currentActions.zoomIn(),
   zoomOut: () => currentActions.zoomOut(),
 };
