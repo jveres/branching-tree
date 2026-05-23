@@ -60,6 +60,21 @@ function ExplorationPage(): ArrowTemplate {
     <section class="workspace">
       <section class="map-panel" id="map-panel" aria-label="Exploration tree map">
         <svg id="tree-map" role="tree" aria-label="Exploration tree map"></svg>
+        <div class="minimap" id="minimap">
+          <div class="minimap-header">
+            <span class="minimap-title">Minimap</span>
+            <span class="minimap-count" id="minimap-count"></span>
+            <button
+              type="button"
+              class="minimap-toggle"
+              id="minimap-toggle"
+              title="Collapse minimap"
+              aria-label="Collapse minimap"
+              aria-expanded="true"
+            ></button>
+          </div>
+          <svg id="minimap-svg" aria-label="Whole exploration tree overview"></svg>
+        </div>
       </section>
 
       <aside class="inspector" aria-label="Exploration details">

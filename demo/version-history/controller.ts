@@ -5,10 +5,9 @@ import {
   type BranchingTreePathNeighborhoodEdge,
   type BranchingTreePathNeighborhoodNode,
   type BranchingTreeState,
-  type BranchingTreeTopologyEdge,
-  type BranchingTreeTopologyNode,
   type Identified,
 } from "../../branching-tree";
+import { createDemoMinimap, type DemoMinimap } from "../shared/minimap";
 import { setShellSummary } from "../shared/shell-store";
 import { setDemoActions } from "./actions";
 import demoStore, { type DemoSize } from "./store";
@@ -104,12 +103,6 @@ const CHILD_INDICATOR_RADIUS = 10;
 const CHILD_INDICATOR_STEM = 10;
 const CHILD_INDICATOR_DEPTH = CHILD_INDICATOR_STEM + CHILD_INDICATOR_RADIUS * 2;
 const EDGE_BADGE_CLEARANCE = 8;
-const MINIMAP_WIDTH = 248;
-const MINIMAP_HEIGHT = 170;
-const MINIMAP_PADDING = 14;
-const MINIMAP_MARGIN = 16;
-const MINIMAP_DOT = 2.5;
-const MINIMAP_DOT_ACTIVE = 3.6;
 const NODE_SCROLL_MARGIN = 48;
 
 const roleLabels: Record<ChatRole, string> = {
@@ -141,10 +134,7 @@ const answers = [
 
 let svg: SVGSVGElement;
 let mapPanel: HTMLElement;
-let minimap: HTMLElement;
-let minimapSvg: SVGSVGElement;
-let minimapCount: HTMLElement;
-let minimapToggle: HTMLButtonElement;
+let minimapController: DemoMinimap<DemoMessage> | null = null;
 
 let tree = new BranchingTree<DemoMessage>();
 let layout: LayoutModel = createEmptyLayout();
@@ -161,11 +151,6 @@ let nodeLayer: SVGGElement | null = null;
 let childBadgeLayer: SVGGElement | null = null;
 let childLinkElements = new Map<string, SVGLineElement>();
 let childBadgeElements = new Map<string, SVGGElement>();
-let minimapDotElements = new Map<string, SVGCircleElement>();
-let minimapEdgeElements = new Map<string, SVGLineElement>();
-let minimapActiveNodeIds = new Set<string>();
-let minimapActiveEdgeIds = new Set<string>();
-let minimapHeadId: string | null = null;
 let dragState: DragState | null = null;
 let inspectorNodeId: string | null = null;
 let suppressNextClick = false;
@@ -174,8 +159,6 @@ let nextGeneratedSeed = DEFAULT_SIZE + 1;
 let camera: Camera = { x: 0, y: 0, scale: 1 };
 let cameraAnimationId: number | null = null;
 let resizeAnimationId: number | null = null;
-let minimapStructureDirty = true;
-let minimapCollapsed = false;
 let demoStarted = false;
 let resizeHandler: (() => void) | null = null;
 
@@ -183,14 +166,18 @@ export function startDemo(): () => void {
   if (demoStarted) return stopDemo;
   demoStarted = true;
   setShellSummary("Loading map");
-  minimapCollapsed = false;
 
   svg = mustElement<SVGSVGElement>("tree-map");
   mapPanel = mustElement<HTMLElement>("map-panel");
-  minimap = mustElement<HTMLElement>("minimap");
-  minimapSvg = mustElement<SVGSVGElement>("minimap-svg");
-  minimapCount = mustElement<HTMLElement>("minimap-count");
-  minimapToggle = mustElement<HTMLButtonElement>("minimap-toggle");
+  minimapController = createDemoMinimap({
+    countLabel: "messages",
+    mapPanel,
+    minimap: mustElement<HTMLElement>("minimap"),
+    minimapCount: mustElement<HTMLElement>("minimap-count"),
+    minimapSvg: mustElement<SVGSVGElement>("minimap-svg"),
+    minimapToggle: mustElement<HTMLButtonElement>("minimap-toggle"),
+    onSelect: selectNode,
+  });
 
   setDemoActions({
     addChild,
@@ -311,18 +298,7 @@ export function startDemo(): () => void {
   resizeHandler = () => scheduleViewportResize();
   window.addEventListener("resize", resizeHandler);
 
-  mapPanel.addEventListener("scroll", () => updateMinimapPosition());
-  minimap.addEventListener("pointerdown", (event) => event.stopPropagation());
-  minimap.addEventListener("wheel", (event) => event.stopPropagation());
-  minimapToggle.addEventListener("click", (event) => {
-    event.stopPropagation();
-    setMinimapCollapsed(!minimapCollapsed);
-  });
-  minimapSvg.addEventListener("click", (event) => {
-    const target = event.target instanceof Element ? event.target.closest(".minimap-dot") : null;
-    const id = target instanceof SVGCircleElement ? target.dataset.id : null;
-    if (id) selectNode(id);
-  });
+  mapPanel.addEventListener("scroll", () => minimapController?.updatePosition());
 
   loadTree(DEFAULT_SIZE);
   return stopDemo;
@@ -343,6 +319,7 @@ function stopDemo(): void {
   }
   mapPanel?.classList.remove("is-dragging", "is-keyboard-mode");
   document.body.classList.remove("is-map-dragging");
+  minimapController = null;
   dragState = null;
 }
 
@@ -369,7 +346,6 @@ function loadState(state: BranchingTreeState<DemoMessage>, nextSeed: number): vo
   nextGeneratedSeed = nextSeed;
   tree = new BranchingTree(state);
   positionCache = new Map();
-  minimapStructureDirty = true;
   resetSvgLayers();
   layout = createVisibleLayout();
   syncMap(layout);
@@ -385,7 +361,7 @@ function loadState(state: BranchingTreeState<DemoMessage>, nextSeed: number): vo
 
   demoStore.renderTime = formatMs(performance.now() - started);
   updateMetrics();
-  syncMinimap(inspectorId ?? null);
+  syncMinimap(inspectorId ?? null, true);
 }
 
 export function createDemoState(targetNodeCount: number): BranchingTreeState<DemoMessage> {
@@ -1068,8 +1044,6 @@ function selectNode(id: string, measure = true): void {
 }
 
 function refreshView(preferredInspectorId: string | null, structureChanged = false): void {
-  if (structureChanged) minimapStructureDirty = true;
-
   layout = createVisibleLayout();
   syncMap(layout);
 
@@ -1081,7 +1055,7 @@ function refreshView(preferredInspectorId: string | null, structureChanged = fal
     renderEmptyInspector();
   }
   updateMetrics();
-  syncMinimap(nextInspectorId);
+  syncMinimap(nextInspectorId, structureChanged);
 }
 
 function getInspectableId(preferredId: string | null): string | null {
@@ -1326,181 +1300,13 @@ function updateMetrics(): void {
   setShellSummary(demoStore.summary);
 }
 
-type MinimapPlacement = {
-  xById: Map<string, number>;
-  depthById: Map<string, number>;
-  maxX: number;
-  maxDepth: number;
-};
-
-function placeMinimapNodes(
-  nodes: readonly BranchingTreeTopologyNode<DemoMessage>[],
-  edges: readonly BranchingTreeTopologyEdge[],
-): MinimapPlacement {
-  const xById = new Map<string, number>();
-  const depthById = new Map<string, number>();
-  const childIdsByParent = new Map<string, string[]>();
-  const childIds = new Set<string>();
-  let leafCursor = 0;
-  let maxDepth = 0;
-
-  for (const edge of edges) {
-    childIds.add(edge.childId);
-    const children = childIdsByParent.get(edge.parentId);
-    if (children) {
-      children.push(edge.childId);
-    } else {
-      childIdsByParent.set(edge.parentId, [edge.childId]);
-    }
-  }
-
-  const assign = (id: string, depth: number): void => {
-    depthById.set(id, depth);
-    if (depth > maxDepth) maxDepth = depth;
-
-    const children = childIdsByParent.get(id) ?? [];
-    if (children.length === 0) {
-      xById.set(id, leafCursor);
-      leafCursor += 1;
-      return;
-    }
-
-    let sum = 0;
-    for (const childId of children) {
-      assign(childId, depth + 1);
-      sum += xById.get(childId) ?? 0;
-    }
-    xById.set(id, sum / children.length);
-  };
-
-  for (const node of nodes) {
-    if (!childIds.has(node.nodeId)) assign(node.nodeId, node.depth);
-  }
-
-  return { xById, depthById, maxX: Math.max(0, leafCursor - 1), maxDepth };
-}
-
-function syncMinimap(headId: string | null): void {
-  if (minimapStructureDirty) {
-    renderMinimapTopology();
-    minimapStructureDirty = false;
-  }
-
-  syncMinimapSelection(headId);
-  updateMinimapPosition();
-}
-
-function renderMinimapTopology(): void {
-  if (!minimapSvg) return;
-
-  const topology = tree.getFullTopology();
-  minimapDotElements = new Map();
-  minimapEdgeElements = new Map();
-  minimapActiveNodeIds = new Set();
-  minimapActiveEdgeIds = new Set();
-  minimapHeadId = null;
-
-  minimapSvg.setAttribute("width", String(MINIMAP_WIDTH));
-  minimapSvg.setAttribute("height", String(MINIMAP_HEIGHT));
-  minimapSvg.setAttribute("viewBox", `0 0 ${MINIMAP_WIDTH} ${MINIMAP_HEIGHT}`);
-  minimapCount.textContent = `${topology.nodes.length} messages`;
-
-  const placement = placeMinimapNodes(topology.nodes, topology.edges);
-  const innerWidth = MINIMAP_WIDTH - MINIMAP_PADDING * 2;
-  const innerHeight = MINIMAP_HEIGHT - MINIMAP_PADDING * 2;
-  const px = (id: string): number =>
-    placement.maxX > 0
-      ? MINIMAP_PADDING + ((placement.xById.get(id) ?? 0) / placement.maxX) * innerWidth
-      : MINIMAP_WIDTH / 2;
-  const py = (id: string): number =>
-    placement.maxDepth > 0
-      ? MINIMAP_PADDING + ((placement.depthById.get(id) ?? 0) / placement.maxDepth) * innerHeight
-      : MINIMAP_HEIGHT / 2;
-
-  const edgeLayer = svgElement("g");
-  const dotLayer = svgElement("g");
-  minimapSvg.replaceChildren(edgeLayer, dotLayer);
-
-  for (const edge of topology.edges) {
-    if (!placement.xById.has(edge.parentId) || !placement.xById.has(edge.childId)) continue;
-
-    const line = svgElement("line");
-    line.setAttribute("class", "minimap-edge");
-    line.setAttribute("x1", String(px(edge.parentId)));
-    line.setAttribute("y1", String(py(edge.parentId)));
-    line.setAttribute("x2", String(px(edge.childId)));
-    line.setAttribute("y2", String(py(edge.childId)));
-    line.dataset.id = edge.id;
-    minimapEdgeElements.set(edge.id, line);
-    edgeLayer.append(line);
-  }
-
-  for (const node of topology.nodes) {
-    const dot = svgElement("circle");
-    dot.setAttribute("class", `minimap-dot role-${node.value.role}`);
-    dot.setAttribute("cx", String(px(node.nodeId)));
-    dot.setAttribute("cy", String(py(node.nodeId)));
-    dot.setAttribute("r", String(MINIMAP_DOT));
-    dot.dataset.id = node.nodeId;
-    minimapDotElements.set(node.nodeId, dot);
-    dotLayer.append(dot);
-  }
-}
-
-function syncMinimapSelection(headId: string | null): void {
-  const nextNodeIds = new Set(tree.selectedPathEntries.map((entry) => entry.nodeId));
-  const nextEdgeIds = new Set<string>();
-  const entries = tree.selectedPathEntries;
-
-  for (let index = 1; index < entries.length; index++) {
-    const parent = entries[index - 1];
-    const child = entries[index];
-    if (parent && child) nextEdgeIds.add(BranchingTree.createEdgeId(parent.nodeId, child.nodeId));
-  }
-
-  for (const id of minimapActiveNodeIds) {
-    if (nextNodeIds.has(id)) continue;
-
-    const dot = minimapDotElements.get(id);
-    dot?.classList.remove("is-active");
-    dot?.setAttribute("r", String(MINIMAP_DOT));
-  }
-
-  for (const id of nextNodeIds) {
-    if (minimapActiveNodeIds.has(id)) continue;
-
-    const dot = minimapDotElements.get(id);
-    dot?.classList.add("is-active");
-    dot?.setAttribute("r", String(MINIMAP_DOT_ACTIVE));
-  }
-
-  toggleClasses(minimapEdgeElements, minimapActiveEdgeIds, nextEdgeIds, "is-selected");
-
-  if (minimapHeadId && minimapHeadId !== headId) {
-    minimapDotElements.get(minimapHeadId)?.classList.remove("is-head");
-  }
-  if (headId) minimapDotElements.get(headId)?.classList.add("is-head");
-
-  minimapActiveNodeIds = nextNodeIds;
-  minimapActiveEdgeIds = nextEdgeIds;
-  minimapHeadId = headId;
-}
-
-function setMinimapCollapsed(collapsed: boolean): void {
-  minimapCollapsed = collapsed;
-  minimap.classList.toggle("is-collapsed", collapsed);
-  minimapToggle.setAttribute("aria-expanded", String(!collapsed));
-  minimapToggle.setAttribute("aria-label", collapsed ? "Expand minimap" : "Collapse minimap");
-  minimapToggle.setAttribute("title", collapsed ? "Expand minimap" : "Collapse minimap");
-  updateMinimapPosition();
-}
-
-function updateMinimapPosition(): void {
-  if (!minimap) return;
-
-  const left = mapPanel.scrollLeft + mapPanel.clientWidth - minimap.offsetWidth - MINIMAP_MARGIN;
-  const top = mapPanel.scrollTop + mapPanel.clientHeight - minimap.offsetHeight - MINIMAP_MARGIN;
-  minimap.style.transform = `translate(${Math.max(MINIMAP_MARGIN, left)}px, ${Math.max(MINIMAP_MARGIN, top)}px)`;
+function syncMinimap(headId: string | null, structureChanged = false): void {
+  minimapController?.sync(
+    tree.getFullTopology(),
+    tree.selectedPathEntries,
+    headId,
+    structureChanged,
+  );
 }
 
 function fitMap(): void {
@@ -1598,7 +1404,7 @@ function applyCamera(): void {
     "transform",
     `translate(${CANVAS_PADDING + camera.x} ${CANVAS_PADDING + camera.y}) scale(${camera.scale})`,
   );
-  updateMinimapPosition();
+  minimapController?.updatePosition();
 }
 
 function scheduleViewportResize(): void {

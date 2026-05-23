@@ -7,6 +7,7 @@ import {
   type BranchingTreeState,
   type Identified,
 } from "../../branching-tree";
+import { createDemoMinimap, type DemoMinimap } from "../shared/minimap";
 import { setShellSummary } from "../shared/shell-store";
 import { setExplorationActions } from "./actions";
 import explorationStore from "./store";
@@ -194,6 +195,7 @@ let queryFontMetrics: QueryFontMetrics | null = null;
 
 let svg: SVGSVGElement;
 let mapPanel: HTMLElement;
+let minimapController: DemoMinimap<ExplorationItem> | null = null;
 let tree = new BranchingTree<ExplorationItem>();
 let layout: LayoutModel = createEmptyLayout();
 let nodeElements = new Map<string, SVGGElement>();
@@ -230,6 +232,17 @@ export function startExplorationDemo(): () => void {
 
   svg = mustElement<SVGSVGElement>("tree-map");
   mapPanel = mustElement<HTMLElement>("map-panel");
+  minimapController = createDemoMinimap({
+    countLabel: "nodes",
+    mapPanel,
+    minimap: mustElement<HTMLElement>("minimap"),
+    minimapCount: mustElement<HTMLElement>("minimap-count"),
+    minimapSvg: mustElement<SVGSVGElement>("minimap-svg"),
+    minimapToggle: mustElement<HTMLButtonElement>("minimap-toggle"),
+    onSelect(id) {
+      selectNodeAndFocus(id, { scrollIntoView: true });
+    },
+  });
 
   setExplorationActions({
     createVersion,
@@ -341,7 +354,7 @@ export function startExplorationDemo(): () => void {
   mapPanel.addEventListener("dragstart", (event) => event.preventDefault());
   mapPanel.addEventListener("selectstart", (event) => event.preventDefault());
   mapPanel.addEventListener("wheel", (event) => handleWheel(event), { passive: false });
-  mapPanel.addEventListener("scroll", scheduleViewportPersistence, { passive: true });
+  mapPanel.addEventListener("scroll", handleMapScroll, { passive: true });
   resizeHandler = () => scheduleViewportResize();
   window.addEventListener("resize", resizeHandler);
 
@@ -369,6 +382,7 @@ function stopExplorationDemo(): void {
   }
   mapPanel?.classList.remove("is-dragging", "is-keyboard-mode");
   document.body.classList.remove("is-map-dragging");
+  minimapController = null;
   dragState = null;
 }
 
@@ -1030,7 +1044,9 @@ function isEmptyAnswerDraft(id: string, value: ExplorationItem): boolean {
 }
 
 function refreshView(preferredInspectorId: string | null, structureChanged = false): string | null {
-  if (structureChanged) positionCache = new Map(positionCache);
+  if (structureChanged) {
+    positionCache = new Map(positionCache);
+  }
 
   layout = createVisibleLayout();
   syncMap(layout);
@@ -1043,6 +1059,7 @@ function refreshView(preferredInspectorId: string | null, structureChanged = fal
     renderEmptyInspector();
   }
   updateMetrics();
+  syncMinimap(nextInspectorId, structureChanged);
   persistExploration(nextInspectorId);
   return nextInspectorId;
 }
@@ -2169,6 +2186,15 @@ function updateMetrics(): void {
   setShellSummary(explorationStore.summary);
 }
 
+function syncMinimap(headId: string | null, structureChanged = false): void {
+  minimapController?.sync(
+    tree.getFullTopology(),
+    tree.selectedPathEntries,
+    headId,
+    structureChanged,
+  );
+}
+
 function fitMap(): void {
   const bounds = mapPanel.getBoundingClientRect();
   if (bounds.width === 0 || bounds.height === 0) return;
@@ -2298,6 +2324,11 @@ function scheduleViewportResize(): void {
 
     applyCamera();
   });
+}
+
+function handleMapScroll(): void {
+  minimapController?.updatePosition();
+  scheduleViewportPersistence();
 }
 
 function scheduleViewportPersistence(): void {

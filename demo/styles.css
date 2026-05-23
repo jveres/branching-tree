@@ -759,29 +759,56 @@ body.is-map-dragging {
 
 .minimap-dot {
   cursor: pointer;
-  fill: hsl(var(--muted-foreground) / 0.5);
-  stroke: none;
+  fill: hsl(var(--card));
+  stroke: hsl(var(--border));
+  stroke-width: 1;
 }
 
 .minimap-dot.role-user {
-  fill: hsl(var(--chart-user) / 0.45);
+  fill: hsl(var(--chart-user) / 0.11);
+  stroke: hsl(var(--chart-user));
 }
 
 .minimap-dot.role-assistant {
-  fill: hsl(var(--chart-assistant) / 0.45);
+  fill: hsl(var(--chart-assistant) / 0.11);
+  stroke: hsl(var(--chart-assistant));
 }
 
 .minimap-dot.is-active.role-user {
-  fill: hsl(var(--chart-user));
+  fill: hsl(var(--chart-user) / 0.24);
+  stroke-width: 1.6;
 }
 
 .minimap-dot.is-active.role-assistant {
-  fill: hsl(var(--chart-assistant));
+  fill: hsl(var(--chart-assistant) / 0.24);
+  stroke-width: 1.6;
 }
 
 .minimap-dot.is-head {
   stroke: hsl(var(--primary));
   stroke-width: 2;
+}
+
+.demo-page.is-exploration-demo .minimap-dot.role-user {
+  fill: hsl(var(--exploration-node-fill));
+  stroke: hsl(var(--quote-stroke));
+}
+
+.demo-page.is-exploration-demo .minimap-dot.role-assistant {
+  fill: hsl(var(--exploration-node-fill));
+  stroke: hsl(var(--exploration-node-stroke));
+}
+
+.demo-page.is-exploration-demo .minimap-dot.is-active {
+  fill: hsl(var(--exploration-node-fill));
+  stroke: hsl(var(--path-edge));
+  stroke-width: 1.8;
+}
+
+.demo-page.is-exploration-demo .minimap-dot.is-head {
+  fill: hsl(var(--exploration-selected-fill));
+  stroke: hsl(var(--path-edge));
+  stroke-width: 2.2;
 }
 
 .inspector {
