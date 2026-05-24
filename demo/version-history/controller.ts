@@ -558,6 +558,12 @@ function createVisibleLayout(): LayoutModel {
     edgeIds.add(edge.id);
   }
 
+  const rootSiblingEdge = createRootSiblingEdge(nodes);
+  if (rootSiblingEdge) {
+    edges.push(rootSiblingEdge);
+    edgeIds.add(rootSiblingEdge.id);
+  }
+
   const bounds = getLayoutBounds(nodes);
   const messageCount = Math.max(0, stats.totalNodes - 1);
 
@@ -572,6 +578,39 @@ function createVisibleLayout(): LayoutModel {
     branchCount: stats.branchPoints,
     messageCount,
     linkCount: Math.max(0, messageCount - 1),
+  };
+}
+
+function createRootSiblingEdge(nodes: readonly PositionedNode[]): PositionedEdge | null {
+  const rootSiblings = nodes
+    .filter((node) => node.parentId === ROOT_NODE_ID)
+    .sort((left, right) => left.siblingIndex - right.siblingIndex);
+  const first = rootSiblings[0];
+  if (!first || rootSiblings.length < 2) return null;
+
+  const segments: string[] = [];
+
+  for (let index = 0; index < rootSiblings.length - 1; index++) {
+    const left = rootSiblings[index];
+    const right = rootSiblings[index + 1];
+    if (!left || !right) continue;
+
+    const startX = left.x + NODE_WIDTH / 2;
+    const endX = right.x - NODE_WIDTH / 2;
+    const controlOffset = Math.min(32, Math.max(0, endX - startX) / 2);
+
+    segments.push(
+      `M ${startX} ${left.y}`,
+      `C ${startX + controlOffset} ${left.y} ${endX - controlOffset} ${right.y} ${endX} ${right.y}`,
+    );
+  }
+
+  return {
+    id: "root-sibling-edge",
+    parentId: ROOT_NODE_ID,
+    childId: first.id,
+    selected: false,
+    d: segments.join(" "),
   };
 }
 
