@@ -12,7 +12,7 @@
     "test": "vitest run --coverage",
     "test:unit": "vitest run",
     "typecheck": "tsc --noEmit",
-    "demo": "vite demo --host 127.0.0.1"
+    "dev": "vite demo --host 127.0.0.1"
   },
   "dependencies": {
     "@arrow-js/core": "1.0.6"

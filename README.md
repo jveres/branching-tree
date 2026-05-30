@@ -85,7 +85,7 @@ pnpm install
 Run the interactive browser demo from the self-contained `demo/` Vite app:
 
 ```sh
-pnpm run demo
+pnpm run dev
 ```
 
 Run formatting, linting, type checking, and unit tests with coverage:
