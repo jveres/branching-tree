@@ -31,7 +31,7 @@ type MinimapOptions = {
 export type DemoMinimap<T extends MinimapValue> = {
   setCollapsed: (collapsed: boolean) => void;
   sync: (
-    topology: BranchingTreeTopology<T>,
+    topology: BranchingTreeTopology<T> | null,
     selectedPathEntries: readonly BranchingTreePathEntry<T>[],
     headId: string | null,
     structureChanged?: boolean,
@@ -195,7 +195,7 @@ export function createDemoMinimap<T extends MinimapValue>({
   return {
     setCollapsed,
     sync(nextTopology, selectedPathEntries, nextHeadId, structureChanged = false) {
-      topology = nextTopology;
+      if (nextTopology) topology = nextTopology;
       if (structureChanged) structureDirty = true;
       if (structureDirty) {
         renderTopology();

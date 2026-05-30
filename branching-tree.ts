@@ -798,10 +798,10 @@ export class BranchingTree<T extends Identified> {
   private deleteSubtree(startId: string): void {
     const stack = [startId];
 
-    for (const id of stack) {
-      const node = this.nodes[id]!;
+    while (stack.length > 0) {
+      const node = this.nodes[stack.pop()!]!;
       stack.push(...node.childrenIds);
-      delete this.nodes[id];
+      delete this.nodes[node.id];
     }
   }
 

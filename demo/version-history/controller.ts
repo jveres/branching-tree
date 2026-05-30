@@ -5,6 +5,7 @@ import {
   type BranchingTreePathNeighborhoodEdge,
   type BranchingTreePathNeighborhoodNode,
   type BranchingTreeState,
+  type BranchingTreeStats,
   type Identified,
 } from "../../branching-tree";
 import { createDemoMinimap, type DemoMinimap } from "../shared/minimap";
@@ -43,8 +44,6 @@ type LayoutModel = {
   edges: PositionedEdge[];
   nodeById: Map<string, PositionedNode>;
   edgeIds: Set<string>;
-  width: number;
-  height: number;
   maxDepth: number;
   branchCount: number;
   messageCount: number;
@@ -138,6 +137,7 @@ let minimapController: DemoMinimap<DemoMessage> | null = null;
 
 let tree = new BranchingTree<DemoMessage>();
 let layout: LayoutModel = createEmptyLayout();
+let structuralStats: BranchingTreeStats = createEmptyStats();
 let contentBounds: ContentBounds = createEmptyContentBounds();
 let nodeElements = new Map<string, SVGGElement>();
 let edgeElements = new Map<string, SVGPathElement>();
@@ -348,6 +348,7 @@ function loadState(state: BranchingTreeState<DemoMessage>, nextSeed: number): vo
   tree = new BranchingTree(state);
   positionCache = new Map();
   resetSvgLayers();
+  refreshStructuralStats();
   layout = createVisibleLayout();
   contentBounds = getLayoutContentBounds();
   syncMap(layout);
@@ -500,9 +501,19 @@ function getVersionLabel(siblingIndex: number, siblingCount: number): string {
   return siblingCount === 1 ? "main" : `v${siblingIndex + 1}/${siblingCount}`;
 }
 
+function refreshStructuralStats(): void {
+  structuralStats = tree.getStats();
+}
+
+function prunePositionCache(): void {
+  for (const id of positionCache.keys()) {
+    if (!tree.hasNode(id)) positionCache.delete(id);
+  }
+}
+
 function createVisibleLayout(): LayoutModel {
   const neighborhood = tree.getSelectedPathNeighborhood();
-  const stats = tree.getStats();
+  const stats = structuralStats;
   const nodes: PositionedNode[] = [];
   const edges: PositionedEdge[] = [];
   const nodeById = new Map<string, PositionedNode>();
@@ -564,7 +575,6 @@ function createVisibleLayout(): LayoutModel {
     edgeIds.add(rootSiblingEdge.id);
   }
 
-  const bounds = getLayoutBounds(nodes);
   const messageCount = Math.max(0, stats.totalNodes - 1);
 
   return {
@@ -572,8 +582,6 @@ function createVisibleLayout(): LayoutModel {
     edges,
     nodeById,
     edgeIds,
-    width: bounds.width,
-    height: bounds.height,
     maxDepth: stats.maxDepth,
     branchCount: stats.branchPoints,
     messageCount,
@@ -647,21 +655,6 @@ function getSiblingPositions(
   }
 
   return positions;
-}
-
-function getLayoutBounds(nodes: readonly PositionedNode[]): { width: number; height: number } {
-  let maxRight = MAP_PADDING + NODE_WIDTH;
-  let maxBottom = MAP_PADDING + NODE_HEIGHT;
-
-  for (const node of nodes) {
-    maxRight = Math.max(maxRight, node.x + NODE_WIDTH / 2);
-    maxBottom = Math.max(maxBottom, node.y + NODE_HEIGHT / 2 + getChildIndicatorDepth(node));
-  }
-
-  return {
-    width: maxRight + MAP_PADDING,
-    height: maxBottom + MAP_PADDING,
-  };
 }
 
 function getChildIndicatorDepth(node: PositionedNode): number {
@@ -1085,6 +1078,10 @@ function selectNode(id: string, measure = true): void {
 }
 
 function refreshView(preferredInspectorId: string | null, structureChanged = false): void {
+  if (structureChanged) {
+    refreshStructuralStats();
+    prunePositionCache();
+  }
   layout = createVisibleLayout();
   contentBounds = getLayoutContentBounds();
   syncMap(layout);
@@ -1163,7 +1160,7 @@ function addChild(): void {
   if (!parent) return;
 
   const started = performance.now();
-  const siblingIndex = tree.getChildren(inspectorNodeId).length;
+  const siblingIndex = tree.getNode(inspectorNodeId)?.childrenIds.length ?? 0;
   const depth = parent.depth + 1;
   const id = createGeneratedId();
 
@@ -1344,7 +1341,7 @@ function updateMetrics(): void {
 
 function syncMinimap(headId: string | null, structureChanged = false): void {
   minimapController?.sync(
-    tree.getFullTopology(),
+    structureChanged ? tree.getFullTopology() : null,
     tree.selectedPathEntries,
     headId,
     structureChanged,
@@ -1610,12 +1607,21 @@ function createEmptyLayout(): LayoutModel {
     edges: [],
     nodeById: new Map(),
     edgeIds: new Set(),
-    width: 1,
-    height: 1,
     maxDepth: 0,
     branchCount: 0,
     messageCount: 0,
     linkCount: 0,
+  };
+}
+
+function createEmptyStats(): BranchingTreeStats {
+  return {
+    totalNodes: 0,
+    selectedPathLength: 0,
+    orphanedNodes: 0,
+    maxDepth: 0,
+    leafCount: 0,
+    branchPoints: 0,
   };
 }
 
