@@ -103,6 +103,7 @@ const CHILD_INDICATOR_STEM = 10;
 const CHILD_INDICATOR_DEPTH = CHILD_INDICATOR_STEM + CHILD_INDICATOR_RADIUS * 2;
 const EDGE_BADGE_CLEARANCE = 8;
 const NODE_SCROLL_MARGIN = 48;
+const EDGE_ARROW_LENGTH = 10;
 
 const roleLabels: Record<ChatRole, string> = {
   assistant: "AI",
@@ -677,8 +678,30 @@ function resetSvgLayers(): void {
   nodeLayer = svgElement("g");
   childBadgeLayer = svgElement("g");
   viewportGroup.append(edgeLayer, childLinkLayer, nodeLayer, childBadgeLayer);
-  svg.append(viewportGroup);
+  svg.append(createEdgeArrowDefs(), viewportGroup);
   applyCamera();
+}
+
+function createEdgeArrowDefs(): SVGDefsElement {
+  const defs = svgElement("defs");
+  const marker = svgElement("marker");
+  const tip = svgElement("path");
+
+  marker.setAttribute("id", "edge-arrow");
+  marker.setAttribute("viewBox", "0 0 10 10");
+  marker.setAttribute("refX", "0");
+  marker.setAttribute("refY", "5");
+  marker.setAttribute("markerWidth", "10");
+  marker.setAttribute("markerHeight", "10");
+  marker.setAttribute("markerUnits", "userSpaceOnUse");
+  marker.setAttribute("orient", "auto");
+
+  tip.setAttribute("class", "edge-arrow");
+  tip.setAttribute("d", "M 0 0 L 10 5 L 0 10 Z");
+
+  marker.append(tip);
+  defs.append(marker);
+  return defs;
 }
 
 function syncMap(model: LayoutModel): void {
@@ -1527,7 +1550,7 @@ function createEdgePath(parent: PositionedNode, child: PositionedNode, selected 
   const startX = parent.x;
   const startY = parent.y + NODE_HEIGHT / 2;
   const endX = child.x;
-  const endY = child.y - NODE_HEIGHT / 2;
+  const endY = child.y - NODE_HEIGHT / 2 - (selected ? EDGE_ARROW_LENGTH : 0);
   const deltaX = endX - startX;
   const deltaY = endY - startY;
   if (deltaX === 0) return `M ${startX} ${startY} L ${endX} ${endY}`;

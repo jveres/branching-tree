@@ -270,6 +270,11 @@ body.is-map-dragging {
   stroke: hsl(var(--path-edge));
   stroke-linecap: butt;
   stroke-width: 3.2;
+  marker-end: url(#edge-arrow);
+}
+
+.edge-arrow {
+  fill: hsl(var(--path-edge));
 }
 
 .tree-node {
