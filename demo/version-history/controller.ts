@@ -1023,7 +1023,13 @@ function smoothScrollNodeIntoView(element: SVGGElement): void {
     });
   }
 
-  smoothPanCameraBy(-remainingX, -remainingY);
+  // Pan the camera only to reveal a node that is actually clipped by the
+  // viewport — never to enforce the comfort margin on an already-visible node.
+  // Doing so would shift content that already fit on screen (e.g. clicking the
+  // top node after the map was fit, where it sits within NODE_SCROLL_MARGIN).
+  const clippedX = nodeBounds.left < panelBounds.left || nodeBounds.right > panelBounds.right;
+  const clippedY = nodeBounds.top < panelBounds.top || nodeBounds.bottom > panelBounds.bottom;
+  smoothPanCameraBy(clippedX ? -remainingX : 0, clippedY ? -remainingY : 0);
 }
 
 function smoothPanCameraBy(deltaX: number, deltaY: number): void {
