@@ -1,4 +1,4 @@
-import { reactive } from "@arrow-js/core";
+import { fields } from "loom";
 
 export type DemoSize = 128 | 256 | 512;
 
@@ -72,6 +72,8 @@ const initialDemoStore: DemoStore = {
   canDeleteVersions: false,
 };
 
-const demoStore = reactive(initialDemoStore);
+// One reactive cell per key: read `demoStore.summary()`, write `demoStore.summary(value)`. The two
+// array fields become `State<…[]>` cells, replaced wholesale (`demoStore.siblings([...])`).
+const demoStore = fields(initialDemoStore);
 
 export default demoStore;

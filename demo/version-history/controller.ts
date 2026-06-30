@@ -363,7 +363,7 @@ function loadState(state: BranchingTreeState<DemoMessage>, nextSeed: number): vo
     renderEmptyInspector();
   }
 
-  demoStore.renderTime = formatMs(performance.now() - started);
+  demoStore.renderTime(formatMs(performance.now() - started));
   updateMetrics();
   syncMinimap(inspectorId ?? null, true);
 }
@@ -1103,7 +1103,7 @@ function selectNode(id: string, measure = true): void {
   tree.selectPathTo(id);
   refreshView(id);
 
-  if (measure) demoStore.selectTime = formatMs(performance.now() - started);
+  if (measure) demoStore.selectTime(formatMs(performance.now() - started));
 }
 
 function refreshView(preferredInspectorId: string | null, structureChanged = false): void {
@@ -1140,7 +1140,7 @@ function selectSiblingVersion(id: string): void {
   if (!tree.selectSiblingById(id)) return;
 
   refreshView(id);
-  demoStore.selectTime = formatMs(performance.now() - started);
+  demoStore.selectTime(formatMs(performance.now() - started));
 }
 
 function selectAdjacentSibling(offset: number): void {
@@ -1157,7 +1157,7 @@ function selectAdjacentSibling(offset: number): void {
   if (!tree.selectSibling(inspectorNodeId, offset)) return;
 
   refreshView(next.nodeId);
-  demoStore.selectTime = formatMs(performance.now() - started);
+  demoStore.selectTime(formatMs(performance.now() - started));
 }
 
 function addVersion(): void {
@@ -1179,7 +1179,7 @@ function addVersion(): void {
     turn: reference.value.turn,
   });
   refreshView(id, true);
-  demoStore.selectTime = formatMs(performance.now() - started);
+  demoStore.selectTime(formatMs(performance.now() - started));
 }
 
 function addChild(): void {
@@ -1198,7 +1198,7 @@ function addChild(): void {
     createGeneratedMessage(id, depth, siblingIndex, siblingIndex + 1),
   );
   refreshView(id, true);
-  demoStore.selectTime = formatMs(performance.now() - started);
+  demoStore.selectTime(formatMs(performance.now() - started));
 }
 
 function truncateAfterSelection(): void {
@@ -1234,7 +1234,7 @@ function mutateTree(mutator: () => boolean, preferredInspectorId: string | null)
   if (!mutator()) return;
 
   refreshView(preferredInspectorId, true);
-  demoStore.selectTime = formatMs(performance.now() - started);
+  demoStore.selectTime(formatMs(performance.now() - started));
 }
 
 function createGeneratedId(): string {
@@ -1296,11 +1296,11 @@ function renderInspector(id: string): void {
 
   inspectorNodeId = id;
   const siblingPosition = tree.getSiblingPosition(id);
-  demoStore.messageTitle = `${node.value.id} · turn ${node.value.turn}`;
-  demoStore.messageRole = node.value.role;
-  demoStore.messageVersion = `${siblingPosition.current}/${siblingPosition.total}`;
-  demoStore.messageTokens = String(node.value.tokenCount);
-  demoStore.messageContent = node.value.content;
+  demoStore.messageTitle(`${node.value.id} · turn ${node.value.turn}`);
+  demoStore.messageRole(node.value.role);
+  demoStore.messageVersion(`${siblingPosition.current}/${siblingPosition.total}`);
+  demoStore.messageTokens(String(node.value.tokenCount));
+  demoStore.messageContent(node.value.content);
 
   renderSiblingList(id);
   renderPathList();
@@ -1309,34 +1309,38 @@ function renderInspector(id: string): void {
 
 function renderEmptyInspector(): void {
   inspectorNodeId = null;
-  demoStore.messageTitle = "No message";
-  demoStore.messageRole = "-";
-  demoStore.messageVersion = "-";
-  demoStore.messageTokens = "-";
-  demoStore.messageContent = "";
-  demoStore.siblings = [];
-  demoStore.pathEntries = [];
+  demoStore.messageTitle("No message");
+  demoStore.messageRole("-");
+  demoStore.messageVersion("-");
+  demoStore.messageTokens("-");
+  demoStore.messageContent("");
+  demoStore.siblings([]);
+  demoStore.pathEntries([]);
   updateActionButtons(null);
 }
 
 function renderSiblingList(id: string): void {
-  demoStore.siblings = tree.getSiblingEntries(id).map((entry) => ({
-    index: String(entry.siblingIndex + 1),
-    label: `${entry.value.id} ${getVersionLabel(entry.siblingIndex, entry.siblingCount)}`,
-    nodeId: entry.nodeId,
-    role: entry.value.role,
-    selected: entry.selected,
-  }));
+  demoStore.siblings(
+    tree.getSiblingEntries(id).map((entry) => ({
+      index: String(entry.siblingIndex + 1),
+      label: `${entry.value.id} ${getVersionLabel(entry.siblingIndex, entry.siblingCount)}`,
+      nodeId: entry.nodeId,
+      role: entry.value.role,
+      selected: entry.selected,
+    })),
+  );
 }
 
 function renderPathList(): void {
   const entries = tree.selectedPathEntries;
   const headId = tree.head?.id;
-  demoStore.pathEntries = entries.map((entry) => ({
-    head: entry.value.id === headId,
-    label: `${entry.value.id} · ${entry.value.role} · ${entry.siblingIndex + 1}/${entry.siblingCount}`,
-    nodeId: entry.nodeId,
-  }));
+  demoStore.pathEntries(
+    entries.map((entry) => ({
+      head: entry.value.id === headId,
+      label: `${entry.value.id} · ${entry.value.role} · ${entry.siblingIndex + 1}/${entry.siblingCount}`,
+      nodeId: entry.nodeId,
+    })),
+  );
 }
 
 function updateActionButtons(id: string | null): void {
@@ -1346,26 +1350,28 @@ function updateActionButtons(id: string | null): void {
   const hasSelection = id !== null;
   const hasSiblings = (entry?.siblingCount ?? 0) > 1;
 
-  demoStore.canPreviousVersion = entry?.hasPreviousSibling === true;
-  demoStore.canNextVersion = entry?.hasNextSibling === true;
-  demoStore.canAddVersion = hasSelection;
-  demoStore.canAddChild = hasSelection;
-  demoStore.canTruncate = id !== null && tree.hasChildren(id);
-  demoStore.canKeepOnlyVersion = hasSelection && hasSiblings;
-  demoStore.canDelete = hasSelection;
-  demoStore.canDeleteVersions = hasSelection;
+  demoStore.canPreviousVersion(entry?.hasPreviousSibling === true);
+  demoStore.canNextVersion(entry?.hasNextSibling === true);
+  demoStore.canAddVersion(hasSelection);
+  demoStore.canAddChild(hasSelection);
+  demoStore.canTruncate(id !== null && tree.hasChildren(id));
+  demoStore.canKeepOnlyVersion(hasSelection && hasSiblings);
+  demoStore.canDelete(hasSelection);
+  demoStore.canDeleteVersions(hasSelection);
 }
 
 function setActiveSizeButton(size: DemoSize | null): void {
-  demoStore.currentSize = size;
+  demoStore.currentSize(size);
 }
 
 function updateMetrics(): void {
-  demoStore.nodeCount = String(layout.messageCount);
-  demoStore.edgeCount = String(layout.linkCount);
-  demoStore.pathCount = String(tree.selectedPath.length);
-  demoStore.summary = `${layout.messageCount} messages · ${layout.branchCount} branch points · depth ${layout.maxDepth}`;
-  setShellSummary(demoStore.summary);
+  demoStore.nodeCount(String(layout.messageCount));
+  demoStore.edgeCount(String(layout.linkCount));
+  demoStore.pathCount(String(tree.selectedPath.length));
+  demoStore.summary(
+    `${layout.messageCount} messages · ${layout.branchCount} branch points · depth ${layout.maxDepth}`,
+  );
+  setShellSummary(demoStore.summary());
 }
 
 function syncMinimap(headId: string | null, structureChanged = false): void {
