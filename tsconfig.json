@@ -1,6 +1,8 @@
 {
   "compilerOptions": {
     "exactOptionalPropertyTypes": true,
+    "jsx": "react-jsx",
+    "jsxImportSource": "loom",
     "module": "ESNext",
     "moduleResolution": "Bundler",
     "noEmit": true,
@@ -10,5 +12,5 @@
     "target": "ES2022",
     "verbatimModuleSyntax": true
   },
-  "include": ["*.ts", "demo/**/*.ts"]
+  "include": ["*.ts", "demo/**/*.ts", "demo/**/*.tsx"]
 }

@@ -1,4 +1,3 @@
-import { html, type ArrowTemplate } from "@arrow-js/core";
 import type { DemoCleanup } from "./shared/page";
 import shellStore, { setShellSummary } from "./shared/shell-store";
 
@@ -6,24 +5,24 @@ let cleanupCurrentDemo: DemoCleanup | null = null;
 let loadSequence = 0;
 
 export function startDemoShell(root: HTMLElement): void {
-  DemoShell()(root);
+  root.append(DemoShell());
   void loadDemo();
 }
 
-function DemoShell(): ArrowTemplate {
-  return html`
+function DemoShell(): HTMLElement {
+  return (
     <main class="app-shell">
       <header class="topbar">
         <div class="topbar-left">
-          <p class="demo-summary">${() => shellStore.summary}</p>
+          <p class="demo-summary">{() => shellStore.summary()}</p>
         </div>
         <div class="topbar-right">
-          <div class="toolbar" id="demo-toolbar" aria-label="Demo controls"></div>
+          <div class="toolbar" id="demo-toolbar" role="toolbar" aria-label="Demo controls" />
         </div>
       </header>
-      <div id="demo-page" class="demo-page"></div>
+      <div id="demo-page" class="demo-page" />
     </main>
-  `;
+  );
 }
 
 async function loadDemo(): Promise<void> {

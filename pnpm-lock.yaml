@@ -8,9 +8,9 @@ importers:
 
   .:
     dependencies:
-      '@arrow-js/core':
-        specifier: 1.0.6
-        version: 1.0.6
+      loom:
+        specifier: github:jveres/loom
+        version: https://codeload.github.com/jveres/loom/tar.gz/bea694a6acfd1c7253c1610ab6aab38f721586ad
     devDependencies:
       '@biomejs/biome':
         specifier: 2.5.1
@@ -29,10 +29,6 @@ importers:
         version: 4.1.9(@vitest/coverage-v8@4.1.9)(vite@8.1.2)
 
 packages:
-
-  '@arrow-js/core@1.0.6':
-    resolution: {integrity: sha512-75f4N0iHtHTwgxf9XS8a1vtfGZZmCvqT0Ix+ScDLclNuR9Fqp2yOIK1u8vmN1BPsS4aRfMVTdSFSmgGCqkJSCg==}
-    engines: {node: '>=20.19.0 || >=22.12.0'}
 
   '@babel/helper-string-parser@7.27.1':
     resolution: {integrity: sha512-qMlSxKbpRlAridDExk92nSobyDdpPijUq2DW6oDnUqd0iOGxmQjyqhMIihI9+zv4LPyZdRje2cavWPbCbWm3eA==}
@@ -291,6 +287,9 @@ packages:
   '@vitest/utils@4.1.9':
     resolution: {integrity: sha512-A51o8ymO5PpqlWNnBP9ZHPXDIpuMtTLlGSjN7la4US+LJzoUMyhwjA5QXlm39JexgwHKW4Xjs8Z2d3dLCXOeuA==}
 
+  alien-signals@3.2.1:
+    resolution: {integrity: sha512-I8FjmltrfnDFoZedi5CG8DghVYNhzb/Ijluz7tCSJH0xpd0484Kowhbb1XDYOxfJpU1p5wnM2X54dA+IfGyD1g==}
+
   assertion-error@2.0.1:
     resolution: {integrity: sha512-Izi8RQcffqCeNVgFigKli1ssklIbpHnCYc6AknXGYoB6grJqyeby7jv12JUQgmTAnIDnbck1uxksT4dzN3PWBA==}
     engines: {node: '>=12'}
@@ -428,6 +427,10 @@ packages:
   lightningcss@1.32.0:
     resolution: {integrity: sha512-NXYBzinNrblfraPGyrbPoD19C1h9lfI/1mzgWYvXUTe414Gz/X1FD2XBZSZM7rRTrMA8JL3OtAaGifrIKhQ5yQ==}
     engines: {node: '>= 12.0.0'}
+
+  loom@https://codeload.github.com/jveres/loom/tar.gz/bea694a6acfd1c7253c1610ab6aab38f721586ad:
+    resolution: {gitHosted: true, integrity: sha512-so0Jqpw1pU0bZgW1SYEGL7nyVzKNGpNgglAT7KFcyfUg/z+Gg7GLe+AgRkY6XVfXCmpcAvmGexmoeVzeXFPaRQ==, tarball: https://codeload.github.com/jveres/loom/tar.gz/bea694a6acfd1c7253c1610ab6aab38f721586ad}
+    version: 0.1.0
 
   magic-string@0.30.21:
     resolution: {integrity: sha512-vd2F4YUyEXKGcLHoq+TEyCjxueSeHnFxyyjNp80yg0XV4vUhnDer/lvvlqM/arB5bXQN5K2/3oinyCRyx8T2CQ==}
@@ -605,8 +608,6 @@ packages:
     hasBin: true
 
 snapshots:
-
-  '@arrow-js/core@1.0.6': {}
 
   '@babel/helper-string-parser@7.27.1': {}
 
@@ -814,6 +815,8 @@ snapshots:
       convert-source-map: 2.0.0
       tinyrainbow: 3.1.0
 
+  alien-signals@3.2.1: {}
+
   assertion-error@2.0.1: {}
 
   ast-v8-to-istanbul@1.0.0:
@@ -910,6 +913,10 @@ snapshots:
       lightningcss-linux-x64-musl: 1.32.0
       lightningcss-win32-arm64-msvc: 1.32.0
       lightningcss-win32-x64-msvc: 1.32.0
+
+  loom@https://codeload.github.com/jveres/loom/tar.gz/bea694a6acfd1c7253c1610ab6aab38f721586ad:
+    dependencies:
+      alien-signals: 3.2.1
 
   magic-string@0.30.21:
     dependencies:

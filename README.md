@@ -6,7 +6,7 @@ UIs.
 [![TypeScript](https://img.shields.io/badge/TypeScript-6.0-3178c6?logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
 [![Coverage](https://img.shields.io/badge/coverage-100%25-16a34a)](#quality-checks)
 [![Tests](https://img.shields.io/badge/tests-77%20passing-16a34a)](#quality-checks)
-[![Demo](https://img.shields.io/badge/demo-ArrowJS-2c4f7c)](#demo)
+[![Demo](https://img.shields.io/badge/demo-Loom-8b6cff)](#demo)
 
 <picture>
   <source
@@ -417,14 +417,15 @@ const clonedValue = clonedState.nodes["copy-abc123"]?.value;
 
 ## Demo
 
-The repository includes an ArrowJS-powered browser demo that loads a large
-chat-like branching tree and renders it as a top-down conversation version map.
+The repository includes a [Loom](https://github.com/jveres/loom)-powered browser
+demo that loads a large chat-like branching tree and renders it as a top-down
+conversation version map.
 The visible map stays focused on the selected path and sibling versions, keeps
 reused nodes in stable positions when switching versions, and uses compact
 subtree badges for hidden descendants.
 
 The demo lives in `demo/`: `demo/index.html` is the Vite HTML entry,
-`demo/main.ts` mounts the ArrowJS shell, and the same entry imports
+`demo/main.ts` mounts the Loom shell, and the same entry imports
 `demo/styles.css`.
 
 The demo supports drag-to-pan, wheel zoom, zoom buttons, Shift-wheel pan,
