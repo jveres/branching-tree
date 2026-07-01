@@ -10,7 +10,7 @@ importers:
     dependencies:
       loom:
         specifier: github:jveres/loom
-        version: https://codeload.github.com/jveres/loom/tar.gz/bea694a6acfd1c7253c1610ab6aab38f721586ad
+        version: https://codeload.github.com/jveres/loom/tar.gz/7e1b8960f854f8f8781355aed6b0464ae495b516
     devDependencies:
       '@biomejs/biome':
         specifier: 2.5.1
@@ -428,8 +428,8 @@ packages:
     resolution: {integrity: sha512-NXYBzinNrblfraPGyrbPoD19C1h9lfI/1mzgWYvXUTe414Gz/X1FD2XBZSZM7rRTrMA8JL3OtAaGifrIKhQ5yQ==}
     engines: {node: '>= 12.0.0'}
 
-  loom@https://codeload.github.com/jveres/loom/tar.gz/bea694a6acfd1c7253c1610ab6aab38f721586ad:
-    resolution: {gitHosted: true, integrity: sha512-so0Jqpw1pU0bZgW1SYEGL7nyVzKNGpNgglAT7KFcyfUg/z+Gg7GLe+AgRkY6XVfXCmpcAvmGexmoeVzeXFPaRQ==, tarball: https://codeload.github.com/jveres/loom/tar.gz/bea694a6acfd1c7253c1610ab6aab38f721586ad}
+  loom@https://codeload.github.com/jveres/loom/tar.gz/7e1b8960f854f8f8781355aed6b0464ae495b516:
+    resolution: {gitHosted: true, integrity: sha512-WhWjOxmkESok3YGIqJL/4OMSFIttDeVqCk/j3re4K/kHcQe6LOeU2CfDsU+6nv5L2GWNB4AiA8WspyM+uUjQ8A==, tarball: https://codeload.github.com/jveres/loom/tar.gz/7e1b8960f854f8f8781355aed6b0464ae495b516}
     version: 0.1.0
 
   magic-string@0.30.21:
@@ -914,7 +914,7 @@ snapshots:
       lightningcss-win32-arm64-msvc: 1.32.0
       lightningcss-win32-x64-msvc: 1.32.0
 
-  loom@https://codeload.github.com/jveres/loom/tar.gz/bea694a6acfd1c7253c1610ab6aab38f721586ad:
+  loom@https://codeload.github.com/jveres/loom/tar.gz/7e1b8960f854f8f8781355aed6b0464ae495b516:
     dependencies:
       alien-signals: 3.2.1
 
