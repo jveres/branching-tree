@@ -22,6 +22,6 @@
     "vitest": "4.1.9"
   },
   "dependencies": {
-    "loom": "github:jveres/loom"
+    "loom": "github:jveres/loom#v0.2.0"
   }
 }
