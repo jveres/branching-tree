@@ -1,4 +1,4 @@
-import { fields } from "loom";
+import { props } from "loom";
 
 export type DemoSize = 128 | 256 | 512;
 
@@ -73,7 +73,7 @@ const initialDemoStore: DemoStore = {
 };
 
 // One reactive cell per key: read `demoStore.summary()`, write `demoStore.summary(value)`. The two
-// array fields become `State<…[]>` cells, replaced wholesale (`demoStore.siblings([...])`).
-const demoStore = fields(initialDemoStore);
+// array props become `State<…[]>` cells, replaced wholesale (`demoStore.siblings([...])`).
+const demoStore = props(initialDemoStore);
 
 export default demoStore;

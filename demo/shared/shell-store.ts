@@ -1,11 +1,11 @@
-import { fields } from "loom";
+import { props } from "loom";
 
 export type ShellStore = {
   summary: string;
 };
 
 // One reactive cell per key (read `shellStore.summary()`, write `shellStore.summary(value)`).
-const shellStore = fields<ShellStore>({
+const shellStore = props<ShellStore>({
   summary: "Loading demo",
 });
 
