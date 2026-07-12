@@ -29,6 +29,7 @@ type MinimapOptions = {
 };
 
 export type DemoMinimap<T extends MinimapValue> = {
+  destroy: () => void;
   setCollapsed: (collapsed: boolean) => void;
   sync: (
     topology: BranchingTreeTopology<T> | null,
@@ -56,6 +57,8 @@ export function createDemoMinimap<T extends MinimapValue>({
   minimapToggle,
   onSelect,
 }: MinimapOptions): DemoMinimap<T> {
+  const listenerAbortController = new AbortController();
+  const { signal } = listenerAbortController;
   let dotElements = new Map<string, SVGCircleElement>();
   let edgeElements = new Map<string, SVGLineElement>();
   let activeNodeIds = new Set<string>();
@@ -178,21 +181,32 @@ export function createDemoMinimap<T extends MinimapValue>({
     headId = nextHeadId;
   };
 
-  minimap.addEventListener("pointerdown", (event) => event.stopPropagation());
-  minimap.addEventListener("wheel", (event) => event.stopPropagation());
-  minimapToggle.addEventListener("click", (event) => {
-    event.stopPropagation();
-    setCollapsed(!collapsed);
-  });
-  minimapSvg.addEventListener("click", (event) => {
-    const target = event.target instanceof Element ? event.target.closest(".minimap-dot") : null;
-    const id = target instanceof SVGCircleElement ? target.dataset.id : null;
-    if (id) onSelect(id);
-  });
+  minimap.addEventListener("pointerdown", (event) => event.stopPropagation(), { signal });
+  minimap.addEventListener("wheel", (event) => event.stopPropagation(), { signal });
+  minimapToggle.addEventListener(
+    "click",
+    (event) => {
+      event.stopPropagation();
+      setCollapsed(!collapsed);
+    },
+    { signal },
+  );
+  minimapSvg.addEventListener(
+    "click",
+    (event) => {
+      const target = event.target instanceof Element ? event.target.closest(".minimap-dot") : null;
+      const id = target instanceof SVGCircleElement ? target.dataset.id : null;
+      if (id) onSelect(id);
+    },
+    { signal },
+  );
 
   setCollapsed(false);
 
   return {
+    destroy() {
+      listenerAbortController.abort();
+    },
     setCollapsed,
     sync(nextTopology, selectedPathEntries, nextHeadId, structureChanged = false) {
       if (nextTopology) topology = nextTopology;

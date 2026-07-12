@@ -1,10 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
 import {
   BranchingTree,
-  ROOT_NODE_ID,
   type BranchingTreeNode,
   type BranchingTreeState,
   type Identified,
+  ROOT_NODE_ID,
 } from "./branching-tree";
 import { createDemoState } from "./demo/version-history/controller";
 
@@ -35,6 +35,13 @@ const treeNode = (
 });
 
 const ids = (values: readonly Item[]): string[] => values.map((value) => value.id);
+
+const NON_INTEGER_INDEX_CASES = [
+  { name: "a fractional value", index: 0.5 },
+  { name: "NaN", index: Number.NaN },
+  { name: "positive Infinity", index: Number.POSITIVE_INFINITY },
+  { name: "negative Infinity", index: Number.NEGATIVE_INFINITY },
+] as const;
 
 describe("BranchingTree", () => {
   it("should start with an empty selected path and a root node", () => {
@@ -68,6 +75,47 @@ describe("BranchingTree", () => {
     expect(tree.hasParent("missing")).toBe(false);
     expect(tree.hasChildren("a")).toBe(true);
     expect(tree.hasChildren("missing")).toBe(false);
+  });
+
+  it("should preserve structural identity when an inserted value is mutated by its caller", () => {
+    const tree = new BranchingTree<Item>();
+    const inserted = item("a");
+    tree.append(inserted);
+
+    inserted.id = "renamed";
+    tree.append(item("b"));
+
+    expect(tree.getNode("a")).toEqual({
+      id: "a",
+      value: item("a"),
+      parentId: ROOT_NODE_ID,
+      childrenIds: ["b"],
+      selectedChildIndex: 0,
+    });
+    expect(tree.getNode("b")?.parentId).toBe("a");
+    expect(tree.getNode("renamed")).toBeUndefined();
+    expect(ids(tree.selectedPath)).toEqual(["a", "b"]);
+  });
+
+  it.each([
+    "__proto__",
+    "constructor",
+    "toString",
+  ])('should insert and read the prototype-like node id "%s"', (id) => {
+    const tree = new BranchingTree<Item>();
+
+    tree.append(item(id));
+
+    expect(tree.hasNode(id)).toBe(true);
+    expect(tree.getNode(id)).toEqual({
+      id,
+      value: item(id),
+      parentId: ROOT_NODE_ID,
+      childrenIds: [],
+      selectedChildIndex: 0,
+    });
+    expect(tree.getValue(id)).toEqual(item(id));
+    expect(ids(tree.selectedPath)).toEqual([id]);
   });
 
   it("should return the cached selected path until the tree changes", () => {
@@ -180,6 +228,16 @@ describe("BranchingTree", () => {
     expect(tree.selectedPath).not.toBe(selectedPath);
     expect(tree.selectedPathEntries).not.toBe(selectedPathEntries);
     expect(tree.selectedPathEntries[1]?.value).toEqual({ id: "b", text: "streamed" });
+  });
+
+  it("should update the selected head before a lazy path cache rebuild", () => {
+    const tree = new BranchingTree<Item>();
+    tree.append(item("a"));
+
+    expect(tree.updateHead({ id: "a", text: "updated before read" })).toBe(true);
+
+    expect(tree.head).toEqual({ id: "a", text: "updated before read" });
+    expect(tree.getState().nodes.a?.value).toEqual({ id: "a", text: "updated before read" });
   });
 
   it("should add siblings and select the newest sibling", () => {
@@ -466,6 +524,26 @@ describe("BranchingTree", () => {
     });
   });
 
+  it("should fail fast when path operations target an orphaned cycle", () => {
+    const tree = new BranchingTree<Item>({
+      rootId: ROOT_NODE_ID,
+      nodes: {
+        [ROOT_NODE_ID]: rootNode(["a"]),
+        a: treeNode("a", ROOT_NODE_ID),
+        x: treeNode("x", "y", ["y"]),
+        y: treeNode("y", "x", ["x"]),
+      },
+    });
+
+    expect(tree.getPathEntriesTo("x")).toEqual([]);
+    expect(tree.selectSiblingById("x")).toBe(false);
+    expect(tree.truncateAfter("x")).toBe(false);
+    expect(() => tree.selectPathTo("x")).toThrow(
+      "Node x is not reachable from root branching-tree-root.",
+    );
+    expect(ids(tree.selectedPath)).toEqual(["a"]);
+  });
+
   it("should return a selected path neighborhood for tree map rendering", () => {
     const tree = new BranchingTree<Item>();
     tree.append(item("a"));
@@ -549,6 +627,7 @@ describe("BranchingTree", () => {
 
     const neighborhood = tree.getSelectedPathNeighborhood({ siblingWindow: 1 });
     const selectedOnly = tree.getSelectedPathNeighborhood({ siblingWindow: 0.8 });
+    const invalidWindow = tree.getSelectedPathNeighborhood({ siblingWindow: Number.NaN });
 
     expect(neighborhood.nodes.map((node) => node.nodeId)).toEqual(["a", "b2", "b3", "b4"]);
     expect(
@@ -569,6 +648,7 @@ describe("BranchingTree", () => {
       { id: "a->b4", parentId: "a", childId: "b4", selected: false },
     ]);
     expect(selectedOnly.nodes.map((node) => node.nodeId)).toEqual(["a", "b3"]);
+    expect(invalidWindow).toEqual({ nodes: [], edges: [] });
   });
 
   it("should insert without selecting when requested", () => {
@@ -607,16 +687,30 @@ describe("BranchingTree", () => {
     tree.append(item("b"));
     tree.addSibling("b", item("b2"));
 
-    const selectedPrevious = tree.selectSibling("b2", -1);
-    const selectedNext = tree.selectSibling("b", 1);
+    expect(tree.selectSibling("b2", -1)).toBe(true);
+    expect(ids(tree.selectedPath)).toEqual(["a", "b"]);
 
-    expect(selectedPrevious).toBe(true);
+    expect(tree.selectSibling("b", 1)).toBe(true);
     expect(ids(tree.selectedPath)).toEqual(["a", "b2"]);
-    expect(selectedNext).toBe(true);
     expect(tree.selectSibling("b", -1)).toBe(false);
     expect(tree.selectSibling("b2", 1)).toBe(false);
     expect(tree.selectSibling("missing", 1)).toBe(false);
     expect(tree.selectSibling(ROOT_NODE_ID, 1)).toBe(false);
+  });
+
+  it.each(
+    NON_INTEGER_INDEX_CASES,
+  )("should reject $name as a sibling offset without mutating selection", ({ index }) => {
+    const tree = new BranchingTree<Item>();
+    tree.append(item("a"));
+    tree.append(item("b"));
+    tree.addSibling("b", item("b2"));
+    const initialState = tree.getState();
+
+    expect(tree.selectSibling("b2", index)).toBe(false);
+
+    expect(tree.getState()).toEqual(initialState);
+    expect(ids(tree.selectedPath)).toEqual(["a", "b2"]);
   });
 
   it("should select siblings by index and id", () => {
@@ -638,6 +732,21 @@ describe("BranchingTree", () => {
     expect(ids(tree.selectedPath)).toEqual(["a", "b2"]);
     expect(tree.selectSiblingById("missing")).toBe(false);
     expect(tree.selectSiblingById(ROOT_NODE_ID)).toBe(false);
+  });
+
+  it.each(
+    NON_INTEGER_INDEX_CASES,
+  )("should reject $name as a sibling index without mutating selection", ({ index }) => {
+    const tree = new BranchingTree<Item>();
+    tree.append(item("a"));
+    tree.append(item("b"));
+    tree.addSibling("b", item("b2"));
+    const initialState = tree.getState();
+
+    expect(tree.selectSiblingAt("b2", index)).toBe(false);
+
+    expect(tree.getState()).toEqual(initialState);
+    expect(ids(tree.selectedPath)).toEqual(["a", "b2"]);
   });
 
   it("should select the path to any existing node", () => {
@@ -686,6 +795,23 @@ describe("BranchingTree", () => {
     expect(state.nodes.c).toBeUndefined();
     expect(tree.deleteNode("missing")).toBe(false);
     expect(tree.deleteNode(ROOT_NODE_ID)).toBe(false);
+  });
+
+  it("should delete a subtree with 150,000 direct children without exceeding argument limits", () => {
+    const childIds = Array.from({ length: 150_000 }, (_, index) => `child-${index}`);
+    const nodes: BranchingTreeState<Item>["nodes"] = {
+      [ROOT_NODE_ID]: rootNode(["parent"]),
+      parent: treeNode("parent", ROOT_NODE_ID, childIds),
+    };
+    for (const childId of childIds) {
+      nodes[childId] = treeNode(childId, "parent");
+    }
+    const tree = new BranchingTree<Item>({ rootId: ROOT_NODE_ID, nodes });
+
+    expect(tree.deleteNode("parent")).toBe(true);
+
+    expect(Object.keys(tree.getState().nodes)).toEqual([ROOT_NODE_ID]);
+    expect(tree.selectedPath).toEqual([]);
   });
 
   it("should keep the current child selected when deleting a later sibling", () => {
@@ -833,6 +959,22 @@ describe("BranchingTree", () => {
       siblingIndex: 1,
       siblingCount: 2,
     });
+  });
+
+  it.each(
+    NON_INTEGER_INDEX_CASES,
+  )("should reject $name as a selected child index when loading state", ({ index }) => {
+    const state: BranchingTreeState<Item> = {
+      rootId: ROOT_NODE_ID,
+      nodes: {
+        [ROOT_NODE_ID]: rootNode(["a"], index),
+        a: treeNode("a", ROOT_NODE_ID),
+      },
+    };
+
+    expect(() => new BranchingTree(state)).toThrow(
+      `Node ${ROOT_NODE_ID} has invalid selected child index ${index}.`,
+    );
   });
 
   it("should clone loaded state and leave current state unchanged after a failed load", () => {
@@ -1065,6 +1207,17 @@ describe("BranchingTree", () => {
       error: "Node key a does not match node id b.",
     },
     {
+      name: "value id mismatch",
+      state: {
+        rootId: ROOT_NODE_ID,
+        nodes: {
+          [ROOT_NODE_ID]: rootNode(["a"]),
+          a: { ...treeNode("a", ROOT_NODE_ID), value: item("b") },
+        },
+      },
+      error: "Node a value id b does not match node id a.",
+    },
+    {
       name: "missing value",
       state: {
         rootId: ROOT_NODE_ID,
@@ -1157,8 +1310,11 @@ describe("BranchingTree", () => {
     expect(BranchingTree.createNodeId()).toBe("node-i");
   });
 
-  it("should create stable edge ids", () => {
+  it("should create stable and unambiguous edge ids", () => {
     expect(BranchingTree.createEdgeId("parent", "child")).toBe("parent->child");
+    expect(BranchingTree.createEdgeId("a->b", "c")).not.toBe(
+      BranchingTree.createEdgeId("a", "b->c"),
+    );
   });
 
   it("should create an empty linear state", () => {
@@ -1230,23 +1386,19 @@ describe("BranchingTree", () => {
   });
 
   it("should create linear state with the default id factory", () => {
-    const createNodeId = vi.spyOn(BranchingTree, "createNodeId");
-    createNodeId.mockReturnValueOnce("generated");
+    vi.spyOn(Math, "random").mockReturnValue(0.5);
 
     const state = BranchingTree.createLinearState([item("old")]);
 
-    expect(createNodeId).toHaveBeenCalledWith(undefined);
-    expect(state.nodes.generated?.value).toEqual({ id: "generated", text: "OLD" });
+    expect(state.nodes["node-i"]?.value).toEqual({ id: "node-i", text: "OLD" });
   });
 
   it("should create linear state with an id prefix", () => {
-    const createNodeId = vi.spyOn(BranchingTree, "createNodeId");
-    createNodeId.mockReturnValueOnce("message-1");
+    vi.spyOn(Math, "random").mockReturnValue(0.5);
 
     const state = BranchingTree.createLinearState([item("old")], { idPrefix: "message" });
 
-    expect(createNodeId).toHaveBeenCalledWith("message");
-    expect(state.nodes["message-1"]?.value).toEqual({ id: "message-1", text: "OLD" });
+    expect(state.nodes["message-i"]?.value).toEqual({ id: "message-i", text: "OLD" });
   });
 
   it("should reject duplicate generated ids for linear state", () => {
@@ -1310,30 +1462,26 @@ describe("BranchingTree", () => {
   });
 
   it("should clone state with the default id factory", () => {
-    const createNodeId = vi.spyOn(BranchingTree, "createNodeId");
-    createNodeId.mockReturnValueOnce("generated");
+    vi.spyOn(Math, "random").mockReturnValue(0.5);
     const source = BranchingTree.createLinearState([item("old")], {
       idFactory: () => "source",
     });
 
     const cloned = BranchingTree.cloneStateWithNewIds(source);
 
-    expect(createNodeId).toHaveBeenCalledWith(undefined);
     expect(cloned.rootId).toBe(ROOT_NODE_ID);
-    expect(cloned.nodes.generated?.value).toEqual({ id: "generated", text: "OLD" });
+    expect(cloned.nodes["node-i"]?.value).toEqual({ id: "node-i", text: "OLD" });
   });
 
   it("should clone state with an id prefix", () => {
-    const createNodeId = vi.spyOn(BranchingTree, "createNodeId");
-    createNodeId.mockReturnValueOnce("copy-1");
+    vi.spyOn(Math, "random").mockReturnValue(0.5);
     const source = BranchingTree.createLinearState([item("old")], {
       idFactory: () => "source",
     });
 
     const cloned = BranchingTree.cloneStateWithNewIds(source, { idPrefix: "copy" });
 
-    expect(createNodeId).toHaveBeenCalledWith("copy");
-    expect(cloned.nodes["copy-1"]?.value).toEqual({ id: "copy-1", text: "OLD" });
+    expect(cloned.nodes["copy-i"]?.value).toEqual({ id: "copy-i", text: "OLD" });
   });
 
   it("should reject duplicate generated ids when cloning state", () => {

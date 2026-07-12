@@ -21,7 +21,7 @@ export type DemoActions = {
 
 const noop = (): void => {};
 
-const currentActions: DemoActions = {
+const noopActions: DemoActions = {
   addChild: noop,
   addVersion: noop,
   deleteBranch: noop,
@@ -39,6 +39,8 @@ const currentActions: DemoActions = {
   zoomIn: noop,
   zoomOut: noop,
 };
+
+const currentActions: DemoActions = { ...noopActions };
 
 export const demoActions: DemoActions = {
   addChild: () => currentActions.addChild(),
@@ -61,4 +63,8 @@ export const demoActions: DemoActions = {
 
 export function setDemoActions(actions: DemoActions): void {
   Object.assign(currentActions, actions);
+}
+
+export function resetDemoActions(): void {
+  Object.assign(currentActions, noopActions);
 }

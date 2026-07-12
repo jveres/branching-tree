@@ -32,8 +32,8 @@ async function loadDemo(): Promise<void> {
   cleanupCurrentDemo?.();
   cleanupCurrentDemo = null;
 
-  const pageRoot = mustElement<HTMLElement>("demo-page");
-  const toolbarRoot = mustElement<HTMLElement>("demo-toolbar");
+  const pageRoot = mustElement("demo-page", HTMLElement);
+  const toolbarRoot = mustElement("demo-toolbar", HTMLElement);
   pageRoot.replaceChildren();
   toolbarRoot.replaceChildren();
 
@@ -43,8 +43,10 @@ async function loadDemo(): Promise<void> {
   cleanupCurrentDemo = module.mountDemo({ pageRoot, toolbarRoot });
 }
 
-function mustElement<T extends Element>(id: string): T {
+function mustElement<T extends Element>(id: string, ElementType: new () => T): T {
   const element = document.getElementById(id);
-  if (!element) throw new Error(`Missing demo element #${id}.`);
-  return element as unknown as T;
+  if (!(element instanceof ElementType)) {
+    throw new Error(`Missing or invalid demo element #${id}; expected ${ElementType.name}.`);
+  }
+  return element;
 }

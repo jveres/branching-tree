@@ -125,15 +125,21 @@ const createRootNode = <T extends Identified>(rootId: string): BranchingTreeNode
   selectedChildIndex: 0,
 });
 
+const snapshotValue = <T extends Identified>(value: T): T => Object.freeze({ ...value }) as T;
+
 const cloneNode = <T extends Identified>(node: BranchingTreeNode<T>): BranchingTreeNode<T> => ({
   ...node,
+  ...(node.value !== undefined ? { value: snapshotValue(node.value) } : {}),
   childrenIds: [...node.childrenIds],
 });
+
+const createNodeRecord = <T extends Identified>(): Record<string, BranchingTreeNode<T>> =>
+  Object.create(null) as Record<string, BranchingTreeNode<T>>;
 
 const cloneNodes = <T extends Identified>(
   nodes: Record<string, BranchingTreeNode<T>>,
 ): Record<string, BranchingTreeNode<T>> => {
-  const copy: Record<string, BranchingTreeNode<T>> = {};
+  const copy = createNodeRecord<T>();
 
   for (const [id, node] of Object.entries(nodes)) {
     copy[id] = cloneNode(node);
@@ -144,11 +150,22 @@ const cloneNodes = <T extends Identified>(
 
 const createRandomId = (): string => Math.random().toString(36).slice(2);
 
+const encodeEdgeIdComponent = (value: string): string => {
+  let encoded = "";
+  for (let index = 0; index < value.length; index++) {
+    encoded += value.charCodeAt(index).toString(16).padStart(4, "0");
+  }
+  return encoded;
+};
+
 export class BranchingTree<T extends Identified> {
-  private nodes: Record<string, BranchingTreeNode<T>> = {};
+  private nodes: Record<string, BranchingTreeNode<T>> = createNodeRecord<T>();
   private rootId = ROOT_NODE_ID;
   private selectedPathCache: readonly T[] = [];
   private selectedPathEntriesCache: readonly BranchingTreePathEntry<T>[] = [];
+  private selectedPathIndexCache = new Map<string, number>();
+  private selectedPathDirty = false;
+  private selectedHeadNodeId: string | undefined;
 
   constructor(initialState?: BranchingTreeState<T>) {
     if (initialState) {
@@ -164,14 +181,17 @@ export class BranchingTree<T extends Identified> {
   }
 
   public get selectedPath(): readonly T[] {
+    this.ensureSelectedPath();
     return this.selectedPathCache;
   }
 
   public get selectedPathEntries(): readonly BranchingTreePathEntry<T>[] {
+    this.ensureSelectedPath();
     return this.selectedPathEntriesCache;
   }
 
   public get head(): T | null {
+    this.ensureSelectedPath();
     return this.selectedPathCache.at(-1) ?? null;
   }
 
@@ -192,9 +212,9 @@ export class BranchingTree<T extends Identified> {
   }
 
   public getSelectedPathState(): BranchingTreeState<T> {
-    const nodes: Record<string, BranchingTreeNode<T>> = {
-      [this.rootId]: createRootNode(this.rootId),
-    };
+    this.ensureSelectedPath();
+    const nodes = createNodeRecord<T>();
+    nodes[this.rootId] = createRootNode(this.rootId);
 
     let parentId = this.rootId;
     for (const entry of this.selectedPathEntriesCache) {
@@ -228,9 +248,8 @@ export class BranchingTree<T extends Identified> {
 
   public reset(rootId = ROOT_NODE_ID): void {
     this.rootId = rootId;
-    this.nodes = {
-      [rootId]: createRootNode(rootId),
-    };
+    this.nodes = createNodeRecord<T>();
+    this.nodes[rootId] = createRootNode(rootId);
     this.rebuildSelectedPath();
   }
 
@@ -326,17 +345,20 @@ export class BranchingTree<T extends Identified> {
   }
 
   public getFullTopology(): BranchingTreeTopology<T> {
+    this.ensureSelectedPath();
     const selectedIds = new Set(this.selectedPathEntriesCache.map((entry) => entry.nodeId));
     const topologyNodes: BranchingTreeTopologyNode<T>[] = [];
-    const stack = [{ id: this.rootId, depth: this.nodes[this.rootId]?.value ? 0 : -1 }];
+    const stack = [
+      { id: this.rootId, depth: this.nodes[this.rootId]?.value ? 0 : -1, siblingIndex: 0 },
+    ];
 
     while (stack.length > 0) {
-      const { id, depth } = stack.pop()!;
+      const { id, depth, siblingIndex } = stack.pop()!;
       const node = this.nodes[id]!;
 
       if (node.value !== undefined) {
         topologyNodes.push({
-          ...this.createTopologyEntry(node),
+          ...this.createTopologyEntry(node, siblingIndex),
           depth,
           childCount: node.childrenIds.length,
           selected: selectedIds.has(id),
@@ -344,7 +366,7 @@ export class BranchingTree<T extends Identified> {
       }
 
       for (let index = node.childrenIds.length - 1; index >= 0; index--) {
-        stack.push({ id: node.childrenIds[index]!, depth: depth + 1 });
+        stack.push({ id: node.childrenIds[index]!, depth: depth + 1, siblingIndex: index });
       }
     }
 
@@ -406,6 +428,7 @@ export class BranchingTree<T extends Identified> {
   public getSelectedPathNeighborhood(
     options: BranchingTreePathNeighborhoodOptions = {},
   ): BranchingTreePathNeighborhood<T> {
+    this.ensureSelectedPath();
     const selectedIds = new Set(this.selectedPathEntriesCache.map((entry) => entry.nodeId));
     const visibleNodes: Array<Omit<BranchingTreePathNeighborhoodNode<T>, "hiddenChildCount">> = [];
     const maxDepth = options.maxDepth ?? Number.POSITIVE_INFINITY;
@@ -414,16 +437,7 @@ export class BranchingTree<T extends Identified> {
       if (depth > maxDepth) break;
 
       const entry = this.selectedPathEntriesCache[depth]!;
-      const entries =
-        entry.parentId === null
-          ? [this.createRootNeighborhoodEntry(entry)]
-          : this.getChildEntries(entry.parentId);
-
-      for (const childEntry of this.filterNeighborhoodEntries(
-        entries,
-        entry.nodeId,
-        options.siblingWindow,
-      )) {
+      for (const childEntry of this.createNeighborhoodEntries(entry, options.siblingWindow)) {
         const node = this.nodes[childEntry.nodeId]!;
         visibleNodes.push({
           ...childEntry,
@@ -461,7 +475,7 @@ export class BranchingTree<T extends Identified> {
   }
 
   public append(value: T, options: InsertOptions = {}): void {
-    this.insert(value, this.head?.id ?? this.rootId, options);
+    this.insert(value, this.getSelectedHeadNodeId(), options, true);
   }
 
   public appendChild(parentId: string, value: T, options: InsertOptions = {}): void {
@@ -472,18 +486,29 @@ export class BranchingTree<T extends Identified> {
     const node = this.nodes[value.id];
     if (!node || node.value === undefined) return false;
 
-    node.value = value;
-    this.replaceCachedValue(value);
+    const snapshot = snapshotValue(value);
+    node.value = snapshot;
+    if (this.selectedPathDirty) {
+      this.rebuildSelectedPath();
+    } else {
+      this.replaceCachedValue(node.id, snapshot);
+    }
     return true;
   }
 
   public updateHead(value: T): boolean {
-    const headIndex = this.selectedPathCache.length - 1;
-    if (headIndex < 0) return false;
-    if (this.selectedPathCache[headIndex]!.id !== value.id) return false;
+    const headNodeId = this.getSelectedHeadNodeId();
+    const headNode = this.nodes[headNodeId];
+    if (headNode?.value === undefined || headNodeId !== value.id) return false;
 
-    this.nodes[value.id]!.value = value;
-    this.replaceCachedValueAt(headIndex, value);
+    const snapshot = snapshotValue(value);
+    headNode.value = snapshot;
+    if (this.selectedPathDirty) {
+      this.rebuildSelectedPath();
+      return true;
+    }
+    const headIndex = this.selectedPathIndexCache.get(headNodeId)!;
+    this.replaceCachedValueAt(headIndex, snapshot);
     return true;
   }
 
@@ -506,6 +531,7 @@ export class BranchingTree<T extends Identified> {
   }
 
   public selectSibling(id: string, offset: number): boolean {
+    if (!Number.isInteger(offset)) return false;
     const parent = this.getParent(id);
     if (!parent) return false;
 
@@ -514,37 +540,39 @@ export class BranchingTree<T extends Identified> {
     if (nextIndex < 0 || nextIndex >= parent.childrenIds.length) return false;
 
     parent.selectedChildIndex = nextIndex;
-    this.rebuildSelectedPath();
+    this.markSelectedPathDirty();
     return true;
   }
 
   public selectSiblingAt(id: string, index: number): boolean {
+    if (!Number.isInteger(index)) return false;
     const parent = this.getParent(id);
     if (!parent || index < 0 || index >= parent.childrenIds.length) return false;
 
     parent.selectedChildIndex = index;
-    this.rebuildSelectedPath();
+    this.markSelectedPathDirty();
     return true;
   }
 
   public selectSiblingById(id: string): boolean {
     const node = this.nodes[id];
-    if (!node?.parentId) return false;
+    if (!node || node.parentId === null) return false;
 
-    this.selectPathTo(id);
+    const pathFromRoot = this.getNodePathTo(id);
+    if (!pathFromRoot) return false;
+
+    this.selectNodePath(pathFromRoot);
     return true;
   }
 
   public selectPathTo(id: string): void {
     const pathFromRoot = this.getNodePathTo(id);
-    if (!pathFromRoot) throw new Error(`Node ${id} not found.`);
-
-    for (let index = 0; index < pathFromRoot.length - 1; index++) {
-      const parent = pathFromRoot[index]!;
-      const child = pathFromRoot[index + 1]!;
-      parent.selectedChildIndex = parent.childrenIds.indexOf(child.id);
+    if (!pathFromRoot) {
+      if (!this.hasNode(id)) throw new Error(`Node ${id} not found.`);
+      throw new Error(`Node ${id} is not reachable from root ${this.rootId}.`);
     }
-    this.rebuildSelectedPath();
+
+    this.selectNodePath(pathFromRoot);
   }
 
   public deleteNode(id: string): boolean {
@@ -559,7 +587,7 @@ export class BranchingTree<T extends Identified> {
     }
 
     this.deleteSubtree(id);
-    this.rebuildSelectedPath();
+    this.markSelectedPathDirty();
     return true;
   }
 
@@ -579,14 +607,15 @@ export class BranchingTree<T extends Identified> {
       this.deleteSubtree(childId);
     }
 
-    this.rebuildSelectedPath();
+    this.markSelectedPathDirty();
     return true;
   }
 
   public truncateAfter(id: string): boolean {
-    if (!this.hasNode(id)) return false;
+    const pathFromRoot = this.getNodePathTo(id);
+    if (!pathFromRoot) return false;
 
-    this.selectPathTo(id);
+    this.selectNodePath(pathFromRoot);
     return this.deleteDescendants(id);
   }
 
@@ -605,11 +634,12 @@ export class BranchingTree<T extends Identified> {
       this.deleteSubtree(siblingId);
     }
 
-    this.rebuildSelectedPath();
+    this.markSelectedPathDirty();
     return true;
   }
 
   public getStats(): BranchingTreeStats {
+    this.ensureSelectedPath();
     const totalNodes = Object.keys(this.nodes).length;
     const stack: Array<{ id: string; depth: number }> = [{ id: this.rootId, depth: 0 }];
     let reachableNodes = 0;
@@ -647,7 +677,7 @@ export class BranchingTree<T extends Identified> {
 
   private getParent(id: string): BranchingTreeNode<T> | undefined {
     const parentId = this.nodes[id]?.parentId;
-    return parentId ? this.nodes[parentId] : undefined;
+    return parentId !== null && parentId !== undefined ? this.nodes[parentId] : undefined;
   }
 
   private getNodePathTo(id: string): BranchingTreeNode<T>[] | undefined {
@@ -655,15 +685,22 @@ export class BranchingTree<T extends Identified> {
     if (!current) return undefined;
 
     const path: BranchingTreeNode<T>[] = [];
-    while (current) {
+    const visitedIds = new Set<string>();
+    while (true) {
+      if (visitedIds.has(current.id)) return undefined;
+      visitedIds.add(current.id);
       path.push(current);
-      current = current.parentId ? this.nodes[current.parentId] : undefined;
+      if (current.id === this.rootId) return path.reverse();
+      current = this.nodes[current.parentId!]!;
     }
-
-    return path.reverse();
   }
 
-  private insert(value: T, parentId: string, options: InsertOptions = {}): void {
+  private insert(
+    value: T,
+    parentId: string,
+    options: InsertOptions = {},
+    appendingToSelectedHead = false,
+  ): void {
     if (this.hasNode(value.id)) {
       throw new Error(`Node ${value.id} already exists.`);
     }
@@ -673,7 +710,7 @@ export class BranchingTree<T extends Identified> {
 
     this.nodes[value.id] = {
       id: value.id,
-      value,
+      value: snapshotValue(value),
       parentId,
       childrenIds: [],
       selectedChildIndex: 0,
@@ -682,16 +719,36 @@ export class BranchingTree<T extends Identified> {
     if (options.select !== false || parent.childrenIds.length === 1) {
       parent.selectedChildIndex = parent.childrenIds.length - 1;
     }
-    this.rebuildSelectedPath();
+    this.markSelectedPathDirty(appendingToSelectedHead ? value.id : undefined);
+  }
+
+  private ensureSelectedPath(): void {
+    if (this.selectedPathDirty) this.rebuildSelectedPath();
+  }
+
+  private getSelectedHeadNodeId(): string {
+    if (this.selectedHeadNodeId === undefined) this.rebuildSelectedPath();
+    return this.selectedHeadNodeId!;
+  }
+
+  private markSelectedPathDirty(selectedHeadNodeId?: string): void {
+    this.selectedPathDirty = true;
+    this.selectedHeadNodeId = selectedHeadNodeId;
   }
 
   private rebuildSelectedPath(): void {
     const path: T[] = [];
     const entries: BranchingTreePathEntry<T>[] = [];
+    const pathIndexes = new Map<string, number>();
+    const visitedIds = new Set<string>();
     let current = this.nodes[this.rootId];
+    let selectedHeadNodeId = this.rootId;
 
-    while (current) {
+    while (current && !visitedIds.has(current.id)) {
+      visitedIds.add(current.id);
+      selectedHeadNodeId = current.id;
       if (current.value !== undefined) {
+        pathIndexes.set(current.id, path.length);
         path.push(current.value);
         entries.push(this.createPathEntry(current));
       }
@@ -702,6 +759,18 @@ export class BranchingTree<T extends Identified> {
 
     this.selectedPathCache = Object.freeze(path);
     this.selectedPathEntriesCache = Object.freeze(entries);
+    this.selectedPathIndexCache = pathIndexes;
+    this.selectedHeadNodeId = selectedHeadNodeId;
+    this.selectedPathDirty = false;
+  }
+
+  private selectNodePath(pathFromRoot: readonly BranchingTreeNode<T>[]): void {
+    for (let index = 0; index < pathFromRoot.length - 1; index++) {
+      const parent = pathFromRoot[index]!;
+      const child = pathFromRoot[index + 1]!;
+      parent.selectedChildIndex = parent.childrenIds.indexOf(child.id);
+    }
+    this.markSelectedPathDirty();
   }
 
   private getSelectedChildId(node: BranchingTreeNode<T>): string | undefined {
@@ -712,7 +781,7 @@ export class BranchingTree<T extends Identified> {
   }
 
   private createPathEntry(node: BranchingTreeNode<T>): BranchingTreePathEntry<T> {
-    const parent = node.parentId ? this.nodes[node.parentId] : undefined;
+    const parent = node.parentId !== null ? this.nodes[node.parentId] : undefined;
     const siblingIndex = parent ? parent.childrenIds.indexOf(node.id) : 0;
     const siblingCount = parent ? parent.childrenIds.length : 1;
 
@@ -748,11 +817,14 @@ export class BranchingTree<T extends Identified> {
     });
   }
 
-  private createTopologyEntry(node: BranchingTreeNode<T>): BranchingTreeSiblingEntry<T> {
-    const parent = node.parentId ? this.nodes[node.parentId] : undefined;
+  private createTopologyEntry(
+    node: BranchingTreeNode<T>,
+    siblingIndex: number,
+  ): BranchingTreeSiblingEntry<T> {
+    const parent = node.parentId !== null ? this.nodes[node.parentId] : undefined;
     if (!parent) return this.createRootNeighborhoodEntry(this.createPathEntry(node));
 
-    return this.createSiblingEntry(node, parent, parent.childrenIds.indexOf(node.id));
+    return this.createSiblingEntry(node, parent, siblingIndex);
   }
 
   private createRootNeighborhoodEntry(
@@ -764,23 +836,36 @@ export class BranchingTree<T extends Identified> {
     });
   }
 
-  private filterNeighborhoodEntries(
-    entries: readonly BranchingTreeChildEntry<T>[],
-    selectedNodeId: string,
+  private createNeighborhoodEntries(
+    selectedEntry: BranchingTreePathEntry<T>,
     siblingWindow: number | undefined,
   ): readonly BranchingTreeChildEntry<T>[] {
-    if (siblingWindow === undefined) return entries;
+    if (selectedEntry.parentId === null) {
+      return [this.createRootNeighborhoodEntry(selectedEntry)];
+    }
 
-    const selectedEntry = entries.find((entry) => entry.nodeId === selectedNodeId)!;
-    const windowSize = Math.max(0, Math.floor(siblingWindow));
-    return entries.filter(
-      (entry) => Math.abs(entry.siblingIndex - selectedEntry.siblingIndex) <= windowSize,
-    );
+    const parent = this.nodes[selectedEntry.parentId]!;
+    let firstIndex = 0;
+    let lastIndex = parent.childrenIds.length - 1;
+
+    if (siblingWindow !== undefined) {
+      const windowSize = Math.max(0, Math.floor(siblingWindow));
+      firstIndex = Math.max(0, selectedEntry.siblingIndex - windowSize);
+      lastIndex = Math.min(lastIndex, selectedEntry.siblingIndex + windowSize);
+    }
+
+    const entries: BranchingTreeChildEntry<T>[] = [];
+    for (let index = firstIndex; index <= lastIndex; index++) {
+      const childId = parent.childrenIds[index]!;
+      entries.push(this.createSiblingEntry(this.nodes[childId]!, parent, index));
+    }
+
+    return entries;
   }
 
-  private replaceCachedValue(value: T): void {
-    const pathIndex = this.selectedPathCache.findIndex((pathValue) => pathValue.id === value.id);
-    if (pathIndex !== -1) this.replaceCachedValueAt(pathIndex, value);
+  private replaceCachedValue(nodeId: string, value: T): void {
+    const pathIndex = this.selectedPathIndexCache.get(nodeId);
+    if (pathIndex !== undefined) this.replaceCachedValueAt(pathIndex, value);
   }
 
   private replaceCachedValueAt(pathIndex: number, value: T): void {
@@ -796,13 +881,11 @@ export class BranchingTree<T extends Identified> {
   }
 
   private deleteSubtree(startId: string): void {
-    const stack = [startId];
-
-    while (stack.length > 0) {
-      const node = this.nodes[stack.pop()!]!;
-      stack.push(...node.childrenIds);
-      delete this.nodes[node.id];
+    const nodeIds = new Set([startId]);
+    for (const nodeId of nodeIds) {
+      for (const childId of this.nodes[nodeId]!.childrenIds) nodeIds.add(childId);
     }
+    for (const nodeId of nodeIds) delete this.nodes[nodeId];
   }
 
   private validateState(rootId: string, nodes: Record<string, BranchingTreeNode<T>>): void {
@@ -810,8 +893,17 @@ export class BranchingTree<T extends Identified> {
     if (!root) throw new Error(`Root node ${rootId} missing from state.`);
     if (root.parentId !== null) throw new Error(`Root node ${rootId} cannot have a parent.`);
 
+    const childIdsByNode = new Map<string, Set<string>>();
     for (const [id, node] of Object.entries(nodes)) {
       if (node.id !== id) throw new Error(`Node key ${id} does not match node id ${node.id}.`);
+
+      if (!Number.isInteger(node.selectedChildIndex)) {
+        throw new Error(`Node ${id} has invalid selected child index ${node.selectedChildIndex}.`);
+      }
+
+      if (node.value !== undefined && node.value.id !== node.id) {
+        throw new Error(`Node ${id} value id ${node.value.id} does not match node id ${node.id}.`);
+      }
 
       if (id !== rootId && node.value === undefined) {
         throw new Error(`Node ${id} is missing its value.`);
@@ -821,25 +913,30 @@ export class BranchingTree<T extends Identified> {
         throw new Error(`Node ${id} is missing its parent.`);
       }
 
-      if (node.parentId && !nodes[node.parentId]) {
-        throw new Error(`Node ${id} has missing parent ${node.parentId}.`);
-      }
-
-      if (node.parentId && !nodes[node.parentId]!.childrenIds.includes(id)) {
-        throw new Error(`Parent ${node.parentId} does not include child ${id}.`);
-      }
-
       const childIds = new Set(node.childrenIds);
       if (childIds.size !== node.childrenIds.length) {
         throw new Error(`Node ${id} has duplicate children.`);
       }
+      childIdsByNode.set(id, childIds);
+    }
 
+    for (const [id, node] of Object.entries(nodes)) {
       for (const childId of node.childrenIds) {
         const child = nodes[childId];
         if (!child) throw new Error(`Node ${id} has missing child ${childId}.`);
         if (child.parentId !== id) {
           throw new Error(`Child ${childId} does not point back to parent ${id}.`);
         }
+      }
+    }
+
+    for (const [id, node] of Object.entries(nodes)) {
+      if (node.parentId === null) continue;
+      if (!nodes[node.parentId]) {
+        throw new Error(`Node ${id} has missing parent ${node.parentId}.`);
+      }
+      if (!childIdsByNode.get(node.parentId)!.has(id)) {
+        throw new Error(`Parent ${node.parentId} does not include child ${id}.`);
       }
     }
   }
@@ -849,6 +946,9 @@ export class BranchingTree<T extends Identified> {
   }
 
   public static createEdgeId(parentId: string, childId: string): string {
+    if (parentId.includes("->") || childId.includes("->")) {
+      return `edge:${encodeEdgeIdComponent(parentId)}:${encodeEdgeIdComponent(childId)}`;
+    }
     return `${parentId}->${childId}`;
   }
 
@@ -858,9 +958,8 @@ export class BranchingTree<T extends Identified> {
   ): BranchingTreeState<Reidentified<T>> {
     const rootId = options.rootId ?? ROOT_NODE_ID;
     const createId = options.idFactory ?? (() => BranchingTree.createNodeId(options.idPrefix));
-    const nodes: Record<string, BranchingTreeNode<Reidentified<T>>> = {
-      [rootId]: createRootNode(rootId),
-    };
+    const nodes = createNodeRecord<Reidentified<T>>();
+    nodes[rootId] = createRootNode(rootId);
 
     let parentId = rootId;
     for (const value of values) {
@@ -906,7 +1005,7 @@ export class BranchingTree<T extends Identified> {
       return mappedId;
     };
 
-    const nodes: Record<string, BranchingTreeNode<Reidentified<T>>> = {};
+    const nodes = createNodeRecord<Reidentified<T>>();
 
     for (const [oldId, node] of Object.entries(state.nodes)) {
       const id = getMappedId(oldId);

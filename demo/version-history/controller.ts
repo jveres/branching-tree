@@ -1,16 +1,16 @@
 import {
   BranchingTree,
-  ROOT_NODE_ID,
   type BranchingTreeNode,
   type BranchingTreePathNeighborhoodEdge,
   type BranchingTreePathNeighborhoodNode,
   type BranchingTreeState,
   type BranchingTreeStats,
   type Identified,
+  ROOT_NODE_ID,
 } from "../../branching-tree";
 import { createDemoMinimap, type DemoMinimap } from "../shared/minimap";
 import { setShellSummary } from "../shared/shell-store";
-import { setDemoActions } from "./actions";
+import { resetDemoActions, setDemoActions } from "./actions";
 import demoStore, { type DemoSize } from "./store";
 
 type ChatRole = "user" | "assistant";
@@ -162,22 +162,24 @@ let camera: Camera = { x: 0, y: 0, scale: 1 };
 let cameraAnimationId: number | null = null;
 let resizeAnimationId: number | null = null;
 let demoStarted = false;
-let resizeHandler: (() => void) | null = null;
+let listenerAbortController: AbortController | null = null;
 
 export function startDemo(): () => void {
   if (demoStarted) return stopDemo;
   demoStarted = true;
   setShellSummary("Loading map");
 
-  svg = mustElement<SVGSVGElement>("tree-map");
-  mapPanel = mustElement<HTMLElement>("map-panel");
+  svg = mustElement("tree-map", SVGSVGElement);
+  mapPanel = mustElement("map-panel", HTMLElement);
+  listenerAbortController = new AbortController();
+  const { signal } = listenerAbortController;
   minimapController = createDemoMinimap({
     countLabel: "messages",
     mapPanel,
-    minimap: mustElement<HTMLElement>("minimap"),
-    minimapCount: mustElement<HTMLElement>("minimap-count"),
-    minimapSvg: mustElement<SVGSVGElement>("minimap-svg"),
-    minimapToggle: mustElement<HTMLButtonElement>("minimap-toggle"),
+    minimap: mustElement("minimap", HTMLElement),
+    minimapCount: mustElement("minimap-count", HTMLElement),
+    minimapSvg: mustElement("minimap-svg", SVGSVGElement),
+    minimapToggle: mustElement("minimap-toggle", HTMLButtonElement),
     onSelect: selectNode,
   });
 
@@ -214,93 +216,111 @@ export function startDemo(): () => void {
     },
   });
 
-  mapPanel.addEventListener("click", (event) => {
-    if (suppressNextClick) {
-      suppressNextClick = false;
-      return;
-    }
+  mapPanel.addEventListener(
+    "click",
+    (event) => {
+      if (suppressNextClick) {
+        suppressNextClick = false;
+        return;
+      }
 
-    const node = getNodeElement(event.target);
-    const id = node?.dataset.id;
-    if (id) {
-      selectNodeAndFocus(id, { scrollIntoView: true });
-    }
-  });
+      const node = getNodeElement(event.target);
+      const id = node?.dataset.id;
+      if (id) {
+        selectNodeAndFocus(id, { scrollIntoView: true });
+      }
+    },
+    { signal },
+  );
 
-  svg.addEventListener("keydown", (event) => {
-    const node = getNodeElement(event.target);
-    const id = node?.dataset.id;
-    if (!id) return;
+  svg.addEventListener(
+    "keydown",
+    (event) => {
+      const node = getNodeElement(event.target);
+      const id = node?.dataset.id;
+      if (!id) return;
 
-    if (event.key === "Enter" || event.key === " ") {
+      if (event.key === "Enter" || event.key === " ") {
+        event.preventDefault();
+        enableKeyboardHoverSuppression();
+        selectNodeAndFocus(id, { scrollIntoView: true });
+        return;
+      }
+
+      const targetId = getKeyboardNavigationTarget(id, event.key);
+      if (!targetId) return;
+
       event.preventDefault();
       enableKeyboardHoverSuppression();
-      selectNodeAndFocus(id, { scrollIntoView: true });
-      return;
-    }
+      selectNodeAndFocus(targetId, { scrollIntoView: true });
+    },
+    { signal },
+  );
 
-    const targetId = getKeyboardNavigationTarget(id, event.key);
-    if (!targetId) return;
+  mapPanel.addEventListener(
+    "pointerdown",
+    (event) => {
+      if (event.button !== 0) return;
 
-    event.preventDefault();
-    enableKeyboardHoverSuppression();
-    selectNodeAndFocus(targetId, { scrollIntoView: true });
+      disableKeyboardHoverSuppression();
+      event.preventDefault();
+      document.body.classList.add("is-map-dragging");
+
+      const node = getNodeElement(event.target);
+      dragState = {
+        pointerId: event.pointerId,
+        startX: event.clientX,
+        startY: event.clientY,
+        startCameraX: camera.x,
+        startCameraY: camera.y,
+        nodeId: node?.dataset.id ?? null,
+        moved: false,
+      };
+      mapPanel.setPointerCapture(event.pointerId);
+    },
+    { signal },
+  );
+
+  mapPanel.addEventListener(
+    "pointermove",
+    (event) => {
+      disableKeyboardHoverSuppression();
+
+      if (!dragState || dragState.pointerId !== event.pointerId) return;
+
+      const deltaX = event.clientX - dragState.startX;
+      const deltaY = event.clientY - dragState.startY;
+      if (!dragState.moved && Math.hypot(deltaX, deltaY) >= DRAG_THRESHOLD) {
+        dragState.moved = true;
+        mapPanel.classList.add("is-dragging");
+      }
+
+      if (!dragState.moved) return;
+
+      event.preventDefault();
+      cancelCameraAnimation();
+      camera = {
+        ...camera,
+        x: dragState.startCameraX + deltaX,
+        y: dragState.startCameraY + deltaY,
+      };
+      applyCamera();
+    },
+    { signal },
+  );
+
+  mapPanel.addEventListener("pointerup", (event) => finishDrag(event), { signal });
+  mapPanel.addEventListener("pointercancel", (event) => finishDrag(event), { signal });
+  mapPanel.addEventListener("dblclick", (event) => handleDoubleClickZoom(event), { signal });
+  mapPanel.addEventListener("dragstart", (event) => event.preventDefault(), { signal });
+  mapPanel.addEventListener("selectstart", (event) => event.preventDefault(), { signal });
+  mapPanel.addEventListener("wheel", (event) => handleWheel(event), {
+    passive: false,
+    signal,
   });
+  window.addEventListener("resize", scheduleViewportResize, { signal });
 
-  mapPanel.addEventListener("pointerdown", (event) => {
-    if (event.button !== 0) return;
-
-    disableKeyboardHoverSuppression();
-    event.preventDefault();
-    document.body.classList.add("is-map-dragging");
-
-    const node = getNodeElement(event.target);
-    dragState = {
-      pointerId: event.pointerId,
-      startX: event.clientX,
-      startY: event.clientY,
-      startCameraX: camera.x,
-      startCameraY: camera.y,
-      nodeId: node?.dataset.id ?? null,
-      moved: false,
-    };
-    mapPanel.setPointerCapture(event.pointerId);
-  });
-
-  mapPanel.addEventListener("pointermove", (event) => {
-    disableKeyboardHoverSuppression();
-
-    if (!dragState || dragState.pointerId !== event.pointerId) return;
-
-    const deltaX = event.clientX - dragState.startX;
-    const deltaY = event.clientY - dragState.startY;
-    if (!dragState.moved && Math.hypot(deltaX, deltaY) >= DRAG_THRESHOLD) {
-      dragState.moved = true;
-      mapPanel.classList.add("is-dragging");
-    }
-
-    if (!dragState.moved) return;
-
-    event.preventDefault();
-    cancelCameraAnimation();
-    camera = {
-      ...camera,
-      x: dragState.startCameraX + deltaX,
-      y: dragState.startCameraY + deltaY,
-    };
-    applyCamera();
-  });
-
-  mapPanel.addEventListener("pointerup", (event) => finishDrag(event));
-  mapPanel.addEventListener("pointercancel", (event) => finishDrag(event));
-  mapPanel.addEventListener("dblclick", (event) => handleDoubleClickZoom(event));
-  mapPanel.addEventListener("dragstart", (event) => event.preventDefault());
-  mapPanel.addEventListener("selectstart", (event) => event.preventDefault());
-  mapPanel.addEventListener("wheel", (event) => handleWheel(event), { passive: false });
-  resizeHandler = () => scheduleViewportResize();
-  window.addEventListener("resize", resizeHandler);
-
-  mapPanel.addEventListener("scroll", () => minimapController?.updatePosition());
+  mapPanel.addEventListener("scroll", () => minimapController?.updatePosition(), { signal });
 
   loadTree(DEFAULT_SIZE);
   return stopDemo;
@@ -310,19 +330,23 @@ function stopDemo(): void {
   if (!demoStarted) return;
 
   demoStarted = false;
+  listenerAbortController?.abort();
+  listenerAbortController = null;
+  minimapController?.destroy();
+  minimapController = null;
+  resetDemoActions();
   cancelCameraAnimation();
   if (resizeAnimationId !== null) {
     cancelAnimationFrame(resizeAnimationId);
     resizeAnimationId = null;
   }
-  if (resizeHandler) {
-    window.removeEventListener("resize", resizeHandler);
-    resizeHandler = null;
+  if (dragState && mapPanel?.hasPointerCapture(dragState.pointerId)) {
+    mapPanel.releasePointerCapture(dragState.pointerId);
   }
   mapPanel?.classList.remove("is-dragging", "is-keyboard-mode");
   document.body.classList.remove("is-map-dragging");
-  minimapController = null;
   dragState = null;
+  suppressNextClick = false;
 }
 
 function enableKeyboardHoverSuppression(): void {
@@ -787,15 +811,19 @@ function appendNodeElement(node: PositionedNode): void {
   group.setAttribute("role", "treeitem");
   group.setAttribute("aria-label", createNodeAriaLabel(node, versionLabel));
   group.dataset.id = node.id;
-  group.addEventListener("click", (event) => {
-    event.stopPropagation();
-    if (suppressNextClick) {
-      suppressNextClick = false;
-      return;
-    }
+  group.addEventListener(
+    "click",
+    (event) => {
+      event.stopPropagation();
+      if (suppressNextClick) {
+        suppressNextClick = false;
+        return;
+      }
 
-    selectNodeAndFocus(node.id, { scrollIntoView: true });
-  });
+      selectNodeAndFocus(node.id, { scrollIntoView: true });
+    },
+    { signal: getListenerSignal() },
+  );
 
   rect.setAttribute("class", "node-card");
   rect.setAttribute("x", String(-NODE_WIDTH / 2));
@@ -1694,10 +1722,17 @@ function svgElement<K extends keyof SVGElementTagNameMap>(tagName: K): SVGElemen
   return document.createElementNS(SVG_NS, tagName);
 }
 
-function mustElement<T extends Element>(id: string): T {
+function getListenerSignal(): AbortSignal {
+  if (!listenerAbortController) throw new Error("Demo listeners are not initialized.");
+  return listenerAbortController.signal;
+}
+
+function mustElement<T extends Element>(id: string, ElementType: new () => T): T {
   const element = document.getElementById(id);
-  if (!element) throw new Error(`Missing demo element #${id}.`);
-  return element as unknown as T;
+  if (!(element instanceof ElementType)) {
+    throw new Error(`Missing or invalid demo element #${id}; expected ${ElementType.name}.`);
+  }
+  return element;
 }
 
 function shorten(value: string, maxLength: number): string {
