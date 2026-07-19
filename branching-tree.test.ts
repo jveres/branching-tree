@@ -97,26 +97,25 @@ describe("BranchingTree", () => {
     expect(ids(tree.selectedPath)).toEqual(["a", "b"]);
   });
 
-  it.each([
-    "__proto__",
-    "constructor",
-    "toString",
-  ])('should insert and read the prototype-like node id "%s"', (id) => {
-    const tree = new BranchingTree<Item>();
+  it.each(["__proto__", "constructor", "toString"])(
+    'should insert and read the prototype-like node id "%s"',
+    (id) => {
+      const tree = new BranchingTree<Item>();
 
-    tree.append(item(id));
+      tree.append(item(id));
 
-    expect(tree.hasNode(id)).toBe(true);
-    expect(tree.getNode(id)).toEqual({
-      id,
-      value: item(id),
-      parentId: ROOT_NODE_ID,
-      childrenIds: [],
-      selectedChildIndex: 0,
-    });
-    expect(tree.getValue(id)).toEqual(item(id));
-    expect(ids(tree.selectedPath)).toEqual([id]);
-  });
+      expect(tree.hasNode(id)).toBe(true);
+      expect(tree.getNode(id)).toEqual({
+        id,
+        value: item(id),
+        parentId: ROOT_NODE_ID,
+        childrenIds: [],
+        selectedChildIndex: 0,
+      });
+      expect(tree.getValue(id)).toEqual(item(id));
+      expect(ids(tree.selectedPath)).toEqual([id]);
+    },
+  );
 
   it("should return the cached selected path until the tree changes", () => {
     const tree = new BranchingTree<Item>();
@@ -698,20 +697,21 @@ describe("BranchingTree", () => {
     expect(tree.selectSibling(ROOT_NODE_ID, 1)).toBe(false);
   });
 
-  it.each(
-    NON_INTEGER_INDEX_CASES,
-  )("should reject $name as a sibling offset without mutating selection", ({ index }) => {
-    const tree = new BranchingTree<Item>();
-    tree.append(item("a"));
-    tree.append(item("b"));
-    tree.addSibling("b", item("b2"));
-    const initialState = tree.getState();
+  it.each(NON_INTEGER_INDEX_CASES)(
+    "should reject $name as a sibling offset without mutating selection",
+    ({ index }) => {
+      const tree = new BranchingTree<Item>();
+      tree.append(item("a"));
+      tree.append(item("b"));
+      tree.addSibling("b", item("b2"));
+      const initialState = tree.getState();
 
-    expect(tree.selectSibling("b2", index)).toBe(false);
+      expect(tree.selectSibling("b2", index)).toBe(false);
 
-    expect(tree.getState()).toEqual(initialState);
-    expect(ids(tree.selectedPath)).toEqual(["a", "b2"]);
-  });
+      expect(tree.getState()).toEqual(initialState);
+      expect(ids(tree.selectedPath)).toEqual(["a", "b2"]);
+    },
+  );
 
   it("should select siblings by index and id", () => {
     const tree = new BranchingTree<Item>();
@@ -734,20 +734,21 @@ describe("BranchingTree", () => {
     expect(tree.selectSiblingById(ROOT_NODE_ID)).toBe(false);
   });
 
-  it.each(
-    NON_INTEGER_INDEX_CASES,
-  )("should reject $name as a sibling index without mutating selection", ({ index }) => {
-    const tree = new BranchingTree<Item>();
-    tree.append(item("a"));
-    tree.append(item("b"));
-    tree.addSibling("b", item("b2"));
-    const initialState = tree.getState();
+  it.each(NON_INTEGER_INDEX_CASES)(
+    "should reject $name as a sibling index without mutating selection",
+    ({ index }) => {
+      const tree = new BranchingTree<Item>();
+      tree.append(item("a"));
+      tree.append(item("b"));
+      tree.addSibling("b", item("b2"));
+      const initialState = tree.getState();
 
-    expect(tree.selectSiblingAt("b2", index)).toBe(false);
+      expect(tree.selectSiblingAt("b2", index)).toBe(false);
 
-    expect(tree.getState()).toEqual(initialState);
-    expect(ids(tree.selectedPath)).toEqual(["a", "b2"]);
-  });
+      expect(tree.getState()).toEqual(initialState);
+      expect(ids(tree.selectedPath)).toEqual(["a", "b2"]);
+    },
+  );
 
   it("should select the path to any existing node", () => {
     const tree = new BranchingTree<Item>();
@@ -961,21 +962,22 @@ describe("BranchingTree", () => {
     });
   });
 
-  it.each(
-    NON_INTEGER_INDEX_CASES,
-  )("should reject $name as a selected child index when loading state", ({ index }) => {
-    const state: BranchingTreeState<Item> = {
-      rootId: ROOT_NODE_ID,
-      nodes: {
-        [ROOT_NODE_ID]: rootNode(["a"], index),
-        a: treeNode("a", ROOT_NODE_ID),
-      },
-    };
+  it.each(NON_INTEGER_INDEX_CASES)(
+    "should reject $name as a selected child index when loading state",
+    ({ index }) => {
+      const state: BranchingTreeState<Item> = {
+        rootId: ROOT_NODE_ID,
+        nodes: {
+          [ROOT_NODE_ID]: rootNode(["a"], index),
+          a: treeNode("a", ROOT_NODE_ID),
+        },
+      };
 
-    expect(() => new BranchingTree(state)).toThrow(
-      `Node ${ROOT_NODE_ID} has invalid selected child index ${index}.`,
-    );
-  });
+      expect(() => new BranchingTree(state)).toThrow(
+        `Node ${ROOT_NODE_ID} has invalid selected child index ${index}.`,
+      );
+    },
+  );
 
   it("should clone loaded state and leave current state unchanged after a failed load", () => {
     const state: BranchingTreeState<Item> = {
@@ -1538,24 +1540,25 @@ describe("BranchingTree", () => {
 });
 
 describe("demo sample data", () => {
-  it.each([
-    2, 3, 128, 256, 512,
-  ])("should start with a user message and only end paths on assistant messages for %i nodes", (nodeCount) => {
-    const state = createDemoState(nodeCount);
-    const root = state.nodes[state.rootId];
+  it.each([2, 3, 128, 256, 512])(
+    "should start with a user message and only end paths on assistant messages for %i nodes",
+    (nodeCount) => {
+      const state = createDemoState(nodeCount);
+      const root = state.nodes[state.rootId];
 
-    expect(root?.childrenIds).toHaveLength(1);
+      expect(root?.childrenIds).toHaveLength(1);
 
-    const firstMessage = state.nodes[root?.childrenIds[0] ?? ""];
-    expect(firstMessage?.value?.role).toBe("user");
+      const firstMessage = state.nodes[root?.childrenIds[0] ?? ""];
+      expect(firstMessage?.value?.role).toBe("user");
 
-    const messages = Object.values(state.nodes).filter((node) => node.value !== undefined);
-    const leaves = messages.filter((node) => node.childrenIds.length === 0);
-    const userMessages = messages.filter((node) => node.value?.role === "user");
+      const messages = Object.values(state.nodes).filter((node) => node.value !== undefined);
+      const leaves = messages.filter((node) => node.childrenIds.length === 0);
+      const userMessages = messages.filter((node) => node.value?.role === "user");
 
-    expect(messages).toHaveLength(nodeCount);
-    expect(leaves.length).toBeGreaterThan(0);
-    expect(leaves.every((node) => node.value?.role === "assistant")).toBe(true);
-    expect(userMessages.every((node) => node.childrenIds.length > 0)).toBe(true);
-  });
+      expect(messages).toHaveLength(nodeCount);
+      expect(leaves.length).toBeGreaterThan(0);
+      expect(leaves.every((node) => node.value?.role === "assistant")).toBe(true);
+      expect(userMessages.every((node) => node.childrenIds.length > 0)).toBe(true);
+    },
+  );
 });

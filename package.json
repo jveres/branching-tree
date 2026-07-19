@@ -15,10 +15,10 @@
     "dev": "vite demo --host 127.0.0.1"
   },
   "devDependencies": {
-    "@biomejs/biome": "2.5.3",
+    "@biomejs/biome": "2.5.4",
     "@vitest/coverage-v8": "4.1.10",
     "typescript": "7.0.2",
-    "vite": "8.1.4",
+    "vite": "8.1.5",
     "vitest": "4.1.10"
   },
   "dependencies": {
