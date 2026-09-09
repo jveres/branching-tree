@@ -12,16 +12,17 @@
     "test": "vitest run --coverage",
     "test:unit": "vitest run",
     "typecheck": "tsc --noEmit",
-    "dev": "vite demo --host 127.0.0.1"
+    "dev": "vite demo --host 127.0.0.1",
+    "bench": "node scripts/performance.mjs"
   },
   "devDependencies": {
-    "@biomejs/biome": "2.5.10",
-    "@vitest/coverage-v8": "4.1.11",
+    "@biomejs/biome": "2.5.12",
+    "@vitest/coverage-v8": "5.0.0",
     "typescript": "7.0.2",
     "vite": "8.2.2",
-    "vitest": "4.1.11"
+    "vitest": "5.0.0"
   },
   "dependencies": {
-    "loom": "link:../loom"
+    "loom": "github:jveres/loom#v0.7.0"
   }
 }

@@ -401,9 +401,11 @@ export function createDemoState(targetNodeCount: number): BranchingTreeState<Dem
     { id: ROOT_NODE_ID, depth: -1, seed: 1 },
   ];
   let nextId = 1;
+  let userLeafCount = 0;
+  let queueIndex = 0;
 
-  while (queue.length > 0 && nextId <= targetNodeCount) {
-    const parentInfo = queue.shift();
+  while (queueIndex < queue.length && nextId <= targetNodeCount) {
+    const parentInfo = queue[queueIndex++];
     if (!parentInfo) break;
 
     const parent = nodes[parentInfo.id];
@@ -415,9 +417,12 @@ export function createDemoState(targetNodeCount: number): BranchingTreeState<Dem
       parentInfo.depth,
       parentInfo.seed,
       remaining,
-      countUserLeaves(nodes),
+      userLeafCount,
     );
     if (childCount === 0) continue;
+
+    // This parent stops being a leaf; each new user child needs a reply.
+    if (parent.value?.role === "user") userLeafCount--;
 
     const childIds: string[] = [];
     for (let index = 0; index < childCount; index++) {
@@ -434,6 +439,7 @@ export function createDemoState(targetNodeCount: number): BranchingTreeState<Dem
         selectedChildIndex: 0,
       };
       childIds.push(id);
+      if (value.role === "user") userLeafCount++;
       queue.push({ id, depth, seed: parentInfo.seed + index + nextId });
       nextId++;
     }
@@ -506,16 +512,6 @@ function getDesiredChildCount(depth: number, seed: number): number {
 
 function getSampleRoll(depth: number, seed: number): number {
   return Math.abs(seed * seed * 7 + seed * 11 + depth * 13) % 16;
-}
-
-function countUserLeaves(nodes: Readonly<Record<string, BranchingTreeNode<DemoMessage>>>): number {
-  let count = 0;
-
-  for (const node of Object.values(nodes)) {
-    if (node.value?.role === "user" && node.childrenIds.length === 0) count++;
-  }
-
-  return count;
 }
 
 function getRole(depth: number): ChatRole {

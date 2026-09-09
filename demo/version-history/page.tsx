@@ -110,9 +110,11 @@ function VersionHistoryPage(): Element[] {
         <section class="inspect-section">
           <h2>Versions</h2>
           <div class="sibling-list">
+            {each(() => demoStore.siblings(), SiblingButton, siblingKey, {
+              update: updateSiblingButton,
+            })}
             {when(
-              () => demoStore.siblings().length > 0,
-              () => each(() => demoStore.siblings(), SiblingButton, siblingKey),
+              () => demoStore.siblings().length === 0,
               () => (
                 <p class="empty-state">No versions</p>
               ),
@@ -199,7 +201,11 @@ function VersionHistoryPage(): Element[] {
 
         <section class="inspect-section path-section">
           <h2>Active path</h2>
-          <ol class="path-list">{each(() => demoStore.pathEntries(), PathEntryButton, pathKey)}</ol>
+          <ol class="path-list">
+            {each(() => demoStore.pathEntries(), PathEntryButton, pathKey, {
+              update: updatePathEntryButton,
+            })}
+          </ol>
         </section>
       </aside>
     </section>,
@@ -230,11 +236,19 @@ function SizeButton(size: DemoSize): HTMLElement {
   );
 }
 
-// Rows are static (no per-field reactive bindings): the controller replaces the whole siblings /
-// pathEntries array on every change, and the `each` key folds in every rendered field, so a changed
-// row gets a new key and is rebuilt. Identity is preserved only while a row's content is unchanged.
-const siblingKey = (e: DemoSiblingView): string =>
-  `${e.nodeId}|${e.selected}|${e.index}|${e.label}|${e.role}`;
+// Stable IDs retain buttons and focus while Loom updates changed row fields in place.
+const siblingKey = (entry: DemoSiblingView): string => entry.nodeId;
+
+function updateSiblingButton(
+  node: Element,
+  entry: DemoSiblingView,
+  previous: DemoSiblingView,
+): void {
+  if (entry.selected !== previous.selected) node.classList.toggle("is-selected", entry.selected);
+  if (entry.index !== previous.index) node.children[0]!.firstChild!.nodeValue = entry.index;
+  if (entry.label !== previous.label) node.children[1]!.firstChild!.nodeValue = entry.label;
+  if (entry.role !== previous.role) node.children[2]!.firstChild!.nodeValue = entry.role;
+}
 
 function SiblingButton(entry: DemoSiblingView): HTMLElement {
   return (
@@ -250,7 +264,13 @@ function SiblingButton(entry: DemoSiblingView): HTMLElement {
   );
 }
 
-const pathKey = (e: DemoPathView): string => `${e.nodeId}|${e.head}|${e.label}`;
+const pathKey = (entry: DemoPathView): string => entry.nodeId;
+
+function updatePathEntryButton(node: Element, entry: DemoPathView, previous: DemoPathView): void {
+  const button = node.firstElementChild!;
+  if (entry.head !== previous.head) button.classList.toggle("is-head", entry.head);
+  if (entry.label !== previous.label) button.firstElementChild!.firstChild!.nodeValue = entry.label;
+}
 
 function PathEntryButton(entry: DemoPathView): HTMLElement {
   return (

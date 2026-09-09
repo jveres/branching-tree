@@ -1,0 +1,148 @@
+{
+  "environment": "Chrome 152, macOS, localhost, no CPU/network throttle",
+  "method": "5 warmups, 20 samples; synchronous work only, frame wait outside timer",
+  "before": {
+    "productionSizeButtonMedianMs": 13.200000047683716,
+    "inspectorMedianMs": 3.25,
+    "inspectorAddedNodesPerUpdate": 512,
+    "inspectorRemovedNodesPerUpdate": 512
+  },
+  "after": {
+    "verification": "Passed: fields, classes, identity, focus, handlers, reorder, removal, empty state",
+    "inspector": {
+      "medianMs": 0.5,
+      "samples": [
+        {
+          "ms": 0.2999999523162842,
+          "added": 0,
+          "removed": 0
+        },
+        {
+          "ms": 0.2999999523162842,
+          "added": 0,
+          "removed": 0
+        },
+        {
+          "ms": 0.30000007152557373,
+          "added": 0,
+          "removed": 0
+        },
+        {
+          "ms": 0.3999999761581421,
+          "added": 0,
+          "removed": 0
+        },
+        {
+          "ms": 0.3999999761581421,
+          "added": 0,
+          "removed": 0
+        },
+        {
+          "ms": 0.3999999761581421,
+          "added": 0,
+          "removed": 0
+        },
+        {
+          "ms": 0.3999999761581421,
+          "added": 0,
+          "removed": 0
+        },
+        {
+          "ms": 0.40000009536743164,
+          "added": 0,
+          "removed": 0
+        },
+        {
+          "ms": 0.40000009536743164,
+          "added": 0,
+          "removed": 0
+        },
+        {
+          "ms": 0.5,
+          "added": 0,
+          "removed": 0
+        },
+        {
+          "ms": 0.5,
+          "added": 0,
+          "removed": 0
+        },
+        {
+          "ms": 0.5,
+          "added": 0,
+          "removed": 0
+        },
+        {
+          "ms": 0.5,
+          "added": 0,
+          "removed": 0
+        },
+        {
+          "ms": 0.5,
+          "added": 0,
+          "removed": 0
+        },
+        {
+          "ms": 0.5,
+          "added": 0,
+          "removed": 0
+        },
+        {
+          "ms": 0.5,
+          "added": 0,
+          "removed": 0
+        },
+        {
+          "ms": 0.5,
+          "added": 0,
+          "removed": 0
+        },
+        {
+          "ms": 0.5,
+          "added": 0,
+          "removed": 0
+        },
+        {
+          "ms": 0.5,
+          "added": 0,
+          "removed": 0
+        },
+        {
+          "ms": 0.5,
+          "added": 0,
+          "removed": 0
+        }
+      ]
+    },
+    "sizeButton": {
+      "medianMs": 5.199999928474426,
+      "samples": [
+        4.800000071525574, 4.899999976158142, 4.899999976158142, 5, 5, 5, 5.100000023841858,
+        5.100000023841858, 5.100000023841858, 5.199999928474426, 5.199999928474426,
+        5.199999928474426, 5.199999928474426, 5.200000047683716, 5.299999952316284,
+        5.399999976158142, 5.5, 5.5, 5.600000023841858, 5.700000047683716
+      ]
+    }
+  },
+  "productionAfter": {
+    "name": "512-button-handler",
+    "samples": [
+      4.800000071525574, 5, 5, 5.099999904632568, 5.100000023841858, 5.100000023841858,
+      5.299999952316284, 5.300000071525574, 5.399999976158142, 5.399999976158142, 5.5, 5.5, 5.5,
+      5.600000023841858, 5.600000023841858, 5.600000023841858, 5.700000047683716, 5.700000047683716,
+      5.700000047683716, 5.799999952316284
+    ],
+    "medianMs": 5.449999988079071
+  },
+  "profiledTabRepeat": {
+    "name": "512-button-handler",
+    "samples": [
+      27.40000009536743, 27.5, 28.699999928474426, 28.700000047683716, 28.800000071525574,
+      30.799999952316284, 31, 32.699999928474426, 32.89999997615814, 33.5, 34, 34,
+      35.200000047683716, 35.300000071525574, 36.5, 36.799999952316284, 38.299999952316284,
+      46.10000002384186, 47, 56.89999997615814
+    ],
+    "medianMs": 33.75
+  },
+  "measurementNote": "A repeat in the previously profiled tab measured 33.75 ms; a fresh isolated production tab measured 5.45 ms. Do not treat the profiled-tab result as a controlled before/after comparison."
+}

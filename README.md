@@ -63,25 +63,20 @@ without coupling your application to a chat-specific schema.
 
 ## Getting started
 
-This repository isn't published to npm. It requires Node.js 20.19 or later on
-the 20.x release line, or Node.js 22.12 or later, because it uses Vite 8. It
-also links Loom from `../loom`.
+This repository isn't published to npm. It requires Node.js 22.12 or later
+on the 22.x release line, Node.js 24.x, or Node.js 26 or later for Vitest 5
+and Vite 8. Loom is pinned to the GitHub release tag `v0.7.0`; the lockfile
+records the resolved commit, so you don't need a sibling Loom checkout.
 
 Set up and verify the project from the `branching-tree` directory:
 
-1. If the sibling `../loom` directory doesn't exist, clone Loom:
+1. Install dependencies with `pnpm`:
 
    ```sh
-   git clone https://github.com/jveres/loom.git ../loom
+   pnpm install --frozen-lockfile
    ```
 
-2. Install dependencies with `pnpm`:
-
-   ```sh
-   pnpm install
-   ```
-
-3. Start the browser demo from the `demo/` Vite app:
+2. Start the browser demo from the `demo/` Vite app:
 
    ```sh
    pnpm run dev
@@ -89,18 +84,21 @@ Set up and verify the project from the `branching-tree` directory:
 
    Vite prints the local URL after the development server starts.
 
-4. Run formatting checks, linting, TypeScript 7 type checking, and unit tests
+3. Run formatting checks, linting, TypeScript 7 type checking, and unit tests
    with coverage:
 
    ```sh
    pnpm run check
    ```
 
-5. Build the production demo bundle:
+4. Build the production demo bundle:
 
    ```sh
    pnpm exec vite build demo
    ```
+
+Run `pnpm bench` for runtime measurements. See the
+[performance audit](performance-results/audit.md) for methodology and results.
 
 ## Basic usage
 

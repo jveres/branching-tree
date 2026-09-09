@@ -61,6 +61,39 @@ describe("BranchingTree", () => {
     expect(tree.getSelectedPathNeighborhood()).toEqual({ nodes: [], edges: [] });
   });
 
+  it("should count hidden children in wide neighborhoods across mutations", () => {
+    const tree = new BranchingTree<Item>();
+    tree.append(item("parent"));
+    for (let index = 0; index < 10000; index++) {
+      tree.appendChild("parent", item(`child-${index}`));
+    }
+    tree.selectPathTo("child-5000");
+
+    const window = tree.getSelectedPathNeighborhood({ siblingWindow: 1 });
+    const shallow = tree.getSelectedPathNeighborhood({ maxDepth: 0 });
+    expect(window.nodes.map((node) => node.nodeId)).toEqual([
+      "parent",
+      "child-4999",
+      "child-5000",
+      "child-5001",
+    ]);
+    expect(window.nodes[0]?.hiddenChildCount).toBe(9997);
+    expect(shallow.nodes).toHaveLength(1);
+    expect(shallow.nodes[0]?.hiddenChildCount).toBe(10000);
+
+    tree.deleteNode("child-5001");
+    const updated = tree.getSelectedPathNeighborhood({ siblingWindow: 1 });
+    expect(updated.nodes.map((node) => node.nodeId)).toEqual([
+      "parent",
+      "child-4999",
+      "child-5000",
+      "child-5002",
+    ]);
+    expect(updated.nodes[0]?.hiddenChildCount).toBe(9996);
+    expect(window.nodes[0]?.hiddenChildCount).toBe(9997);
+    expect(Object.isFrozen(updated.nodes[0])).toBe(true);
+  });
+
   it("should append values to the selected path", () => {
     const tree = new BranchingTree<Item>();
 
@@ -1540,10 +1573,18 @@ describe("BranchingTree", () => {
 });
 
 describe("demo sample data", () => {
-  it.each([2, 3, 128, 256, 512])(
-    "should start with a user message and only end paths on assistant messages for %i nodes",
-    (nodeCount) => {
-      const state = createDemoState(nodeCount);
+  it.each([
+    { target: 2, nodeCount: 2 },
+    { target: 3, nodeCount: 3 },
+    { target: 128, nodeCount: 128 },
+    { target: 256, nodeCount: 256 },
+    { target: 512, nodeCount: 512 },
+    // The seeded generator exhausts its queue before reaching this larger target.
+    { target: 4096, nodeCount: 3020 },
+  ])(
+    "should start with a user message and only end paths on assistant messages for target $target",
+    ({ target, nodeCount }) => {
+      const state = createDemoState(target);
       const root = state.nodes[state.rootId];
 
       expect(root?.childrenIds).toHaveLength(1);

@@ -1,0 +1,176 @@
+{
+  "node": "v22.21.1",
+  "platform": "darwin",
+  "arch": "arm64",
+  "samples": 15,
+  "warmups": 10,
+  "fingerprints": {
+    "128": "539ceab09e102728efa9980c22221772f79880883420d4ff5c5c7b5fb0d5473f",
+    "256": "42615c77d465f051f077944670a7408bbab201f2c3410f60d5664af4e1f214a3",
+    "512": "6e40f944dd3c6899b55c893bb1bec2ce8a003e96bab7ebb6b686be388f3f8c3e",
+    "4096": "60c80c16315a31e864e0d9ea58f8c554f3710a2d40d382a1112240bab7213d6b"
+  },
+  "results": [
+    {
+      "name": "generate-128",
+      "medianMs": 0.03351040000000012,
+      "minMs": 0.025222899999999982,
+      "maxMs": 0.08084374999999966,
+      "iterations": 20
+    },
+    {
+      "name": "load-128",
+      "medianMs": 0.08702915000000075,
+      "minMs": 0.08008954999999958,
+      "maxMs": 0.16192915000000027,
+      "iterations": 20
+    },
+    {
+      "name": "topology-128",
+      "medianMs": 0.05888750000000016,
+      "minMs": 0.04227500000000077,
+      "maxMs": 0.09037920000000099,
+      "iterations": 20
+    },
+    {
+      "name": "neighborhood-128",
+      "medianMs": 0.0063708499999989955,
+      "minMs": 0.006179149999999823,
+      "maxMs": 0.007358349999998381,
+      "iterations": 20
+    },
+    {
+      "name": "stats-128",
+      "medianMs": 0.00535625000000266,
+      "minMs": 0.0028375000000011143,
+      "maxMs": 0.017706249999997682,
+      "iterations": 20
+    },
+    {
+      "name": "generate-256",
+      "medianMs": 0.05178955000000087,
+      "minMs": 0.04861669999999947,
+      "maxMs": 0.13240414999999928,
+      "iterations": 20
+    },
+    {
+      "name": "load-256",
+      "medianMs": 0.17063334999999996,
+      "minMs": 0.16421459999999968,
+      "maxMs": 0.18007084999999848,
+      "iterations": 20
+    },
+    {
+      "name": "topology-256",
+      "medianMs": 0.08487289999999917,
+      "minMs": 0.08232500000000016,
+      "maxMs": 0.09332294999999817,
+      "iterations": 20
+    },
+    {
+      "name": "neighborhood-256",
+      "medianMs": 0.007197949999999764,
+      "minMs": 0.006377050000000395,
+      "maxMs": 0.008481249999999819,
+      "iterations": 20
+    },
+    {
+      "name": "stats-256",
+      "medianMs": 0.005691649999999981,
+      "minMs": 0.005656249999998408,
+      "maxMs": 0.0058479000000005495,
+      "iterations": 20
+    },
+    {
+      "name": "generate-512",
+      "medianMs": 0.106952050000001,
+      "minMs": 0.09764169999999979,
+      "maxMs": 0.13262914999999964,
+      "iterations": 20
+    },
+    {
+      "name": "load-512",
+      "medianMs": 0.3422479499999952,
+      "minMs": 0.33748125000000184,
+      "maxMs": 0.3589666500000021,
+      "iterations": 20
+    },
+    {
+      "name": "topology-512",
+      "medianMs": 0.18108124999999972,
+      "minMs": 0.17665415000000168,
+      "maxMs": 0.19200000000000159,
+      "iterations": 20
+    },
+    {
+      "name": "neighborhood-512",
+      "medianMs": 0.0061854500000038115,
+      "minMs": 0.006160399999998845,
+      "maxMs": 0.012012499999997317,
+      "iterations": 20
+    },
+    {
+      "name": "stats-512",
+      "medianMs": 0.012970849999999246,
+      "minMs": 0.012681250000002819,
+      "maxMs": 0.014643749999999045,
+      "iterations": 20
+    },
+    {
+      "name": "generate-4096",
+      "medianMs": 0.6741039999999998,
+      "minMs": 0.6433749999999918,
+      "maxMs": 1.000062499999956,
+      "iterations": 2
+    },
+    {
+      "name": "load-4096",
+      "medianMs": 2.5757937500000025,
+      "minMs": 2.5198062499999994,
+      "maxMs": 2.7461457999999994,
+      "iterations": 20
+    },
+    {
+      "name": "topology-4096",
+      "medianMs": 1.083129150000002,
+      "minMs": 1.074229200000002,
+      "maxMs": 1.1013541499999975,
+      "iterations": 20
+    },
+    {
+      "name": "neighborhood-4096",
+      "medianMs": 0.009799999999995635,
+      "minMs": 0.009629199999994852,
+      "maxMs": 0.017068749999998543,
+      "iterations": 20
+    },
+    {
+      "name": "stats-4096",
+      "medianMs": 0.2660416499999997,
+      "minMs": 0.2600645999999983,
+      "maxMs": 0.2761708499999941,
+      "iterations": 20
+    },
+    {
+      "name": "wide-neighborhood-window-1",
+      "medianMs": 0.0022041699999999762,
+      "minMs": 0.0020862499999998365,
+      "maxMs": 0.002548340000000735,
+      "iterations": 100
+    },
+    {
+      "name": "wide-neighborhood-depth-0",
+      "medianMs": 0.0007837500000005093,
+      "minMs": 0.0007766599999990831,
+      "maxMs": 0.0008470800000009149,
+      "iterations": 100
+    },
+    {
+      "name": "linear-select-and-read",
+      "medianMs": 2.354418749999991,
+      "minMs": 2.3143937499999994,
+      "maxMs": 2.544814599999995,
+      "iterations": 20
+    }
+  ]
+}

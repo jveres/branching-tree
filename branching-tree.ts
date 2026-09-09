@@ -448,13 +448,17 @@ export class BranchingTree<T extends Identified> {
     }
 
     const visibleIds = new Set(visibleNodes.map((node) => node.nodeId));
+    const visibleChildCounts = new Map<string, number>();
+    for (const node of visibleNodes) {
+      if (node.parentId !== null) {
+        visibleChildCounts.set(node.parentId, (visibleChildCounts.get(node.parentId) ?? 0) + 1);
+      }
+    }
     const nodes = Object.freeze(
       visibleNodes.map((node) =>
         Object.freeze({
           ...node,
-          hiddenChildCount: this.nodes[node.nodeId]!.childrenIds.filter(
-            (childId) => !visibleIds.has(childId),
-          ).length,
+          hiddenChildCount: node.childCount - (visibleChildCounts.get(node.nodeId) ?? 0),
         }),
       ),
     );
