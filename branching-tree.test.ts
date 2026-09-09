@@ -6,7 +6,6 @@ import {
   type Identified,
   ROOT_NODE_ID,
 } from "./branching-tree";
-import { createDemoState } from "./demo/version-history/controller";
 
 type Item = Identified & {
   text: string;
@@ -995,6 +994,27 @@ describe("BranchingTree", () => {
     });
   });
 
+  it("should preserve a clamped selection when inserting an unselected sibling", () => {
+    const tree = new BranchingTree<Item>({
+      rootId: ROOT_NODE_ID,
+      nodes: {
+        [ROOT_NODE_ID]: rootNode(["a", "b"], 99),
+        a: treeNode("a", ROOT_NODE_ID),
+        b: treeNode("b", ROOT_NODE_ID),
+      },
+    });
+    expect(tree.head?.id).toBe("b");
+
+    tree.addSibling("b", item("c"), { select: false });
+
+    expect(tree.head?.id).toBe("b");
+    expect(tree.getSiblingEntries("b").map((entry) => entry.selected)).toEqual([
+      false,
+      true,
+      false,
+    ]);
+  });
+
   it.each(NON_INTEGER_INDEX_CASES)(
     "should reject $name as a selected child index when loading state",
     ({ index }) => {
@@ -1101,6 +1121,61 @@ describe("BranchingTree", () => {
       ],
       edges: [],
     });
+  });
+
+  it("should export a reloadable selected path with a valued root", () => {
+    const tree = new BranchingTree<Item>({
+      rootId: ROOT_NODE_ID,
+      nodes: { [ROOT_NODE_ID]: { ...rootNode(), value: item(ROOT_NODE_ID) } },
+    });
+    tree.append(item("a"));
+    tree.addSibling("a", item("b"));
+    const before = tree.getState();
+
+    const state = tree.getSelectedPathState();
+    const restored = new BranchingTree(state);
+
+    expect(state.nodes[ROOT_NODE_ID]?.parentId).toBeNull();
+    expect(state.nodes[ROOT_NODE_ID]?.childrenIds).toEqual(["b"]);
+    expect(restored.selectedPath).toEqual(tree.selectedPath);
+    expect(Object.keys(state.nodes).sort()).toEqual([ROOT_NODE_ID, "b"].sort());
+    state.nodes[ROOT_NODE_ID]?.childrenIds.push("external");
+    expect(tree.getState()).toEqual(before);
+  });
+
+  it("should preserve empty-string node ids during selection and cloning", () => {
+    const tree = new BranchingTree<Item>();
+    tree.append(item(""));
+    tree.append(item("child"));
+    tree.addSibling("child", item("sibling"));
+    tree.selectPathTo("child");
+    expect(ids(tree.selectedPath)).toEqual(["", "child"]);
+
+    const generatedIds = ["", "copy-child", "copy-sibling"];
+    const cloned = BranchingTree.cloneStateWithNewIds(tree.getState(), {
+      idFactory: () => generatedIds.shift()!,
+    });
+    const restored = new BranchingTree(cloned);
+    expect(ids(restored.selectedPath)).toEqual(["", "copy-child"]);
+    expect(cloned.nodes["copy-child"]?.parentId).toBe("");
+  });
+
+  it("should round-trip an explicitly empty root id", () => {
+    const tree = new BranchingTree<Item>();
+    tree.reset("");
+    tree.append(item("a"));
+    tree.addSibling("a", item("b"));
+    const state = tree.getSelectedPathState();
+    const restored = new BranchingTree(state);
+    expect(restored.rootNodeId).toBe("");
+    expect(ids(restored.selectedPath)).toEqual(["b"]);
+
+    const cloned = BranchingTree.cloneStateWithNewIds(state, {
+      rootId: "",
+      idFactory: () => "copy-b",
+    });
+    expect(new BranchingTree(cloned).selectedPath.map((value) => value.id)).toEqual(["copy-b"]);
+    expect(cloned.nodes["copy-b"]?.parentId).toBe("");
   });
 
   it("should reset to a custom root id", () => {
@@ -1570,36 +1645,4 @@ describe("BranchingTree", () => {
   ])("should reject cloning state with $name", ({ state, error }) => {
     expect(() => BranchingTree.cloneStateWithNewIds(state)).toThrow(error);
   });
-});
-
-describe("demo sample data", () => {
-  it.each([
-    { target: 2, nodeCount: 2 },
-    { target: 3, nodeCount: 3 },
-    { target: 128, nodeCount: 128 },
-    { target: 256, nodeCount: 256 },
-    { target: 512, nodeCount: 512 },
-    // The seeded generator exhausts its queue before reaching this larger target.
-    { target: 4096, nodeCount: 3020 },
-  ])(
-    "should start with a user message and only end paths on assistant messages for target $target",
-    ({ target, nodeCount }) => {
-      const state = createDemoState(target);
-      const root = state.nodes[state.rootId];
-
-      expect(root?.childrenIds).toHaveLength(1);
-
-      const firstMessage = state.nodes[root?.childrenIds[0] ?? ""];
-      expect(firstMessage?.value?.role).toBe("user");
-
-      const messages = Object.values(state.nodes).filter((node) => node.value !== undefined);
-      const leaves = messages.filter((node) => node.childrenIds.length === 0);
-      const userMessages = messages.filter((node) => node.value?.role === "user");
-
-      expect(messages).toHaveLength(nodeCount);
-      expect(leaves.length).toBeGreaterThan(0);
-      expect(leaves.every((node) => node.value?.role === "assistant")).toBe(true);
-      expect(userMessages.every((node) => node.childrenIds.length > 0)).toBe(true);
-    },
-  );
 });

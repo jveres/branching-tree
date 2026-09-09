@@ -1,5 +1,4 @@
-import { scope } from "loom";
-import { each, when } from "loom/dom";
+import { each, replaceChildren, when } from "loom/dom";
 import type { DemoCleanup, DemoMountRoots } from "../shared/page";
 import { demoActions } from "./actions";
 import { startDemo } from "./controller";
@@ -8,17 +7,26 @@ import demoStore, { type DemoPathView, type DemoSiblingView, type DemoSize } fro
 const sizes: DemoSize[] = [128, 256, 512];
 
 export function mountDemo({ pageRoot, toolbarRoot }: DemoMountRoots): DemoCleanup {
-  // Build the reactive UI inside a scope so its bindings (text / each / when effects) tear down
-  // together; the controller's own DOM/rAF/listener cleanup stays in startDemo's stopDemo.
-  const ui = scope(() => {
+  let stopController: DemoCleanup | undefined;
+  let stopped = false;
+  const cleanup = (): void => {
+    if (stopped) return;
+    stopped = true;
+    stopController?.();
+    // DOM-owned Loom bindings outlive reactive scopes; dispose both mounted subtrees.
+    replaceChildren(pageRoot);
+    replaceChildren(toolbarRoot);
+  };
+
+  try {
     toolbarRoot.append(...VersionHistoryToolbar());
     pageRoot.append(...VersionHistoryPage());
-  });
-  const stopDemo = startDemo(); // queries the #tree-map / #minimap-svg scaffolding mounted above
-  return () => {
-    stopDemo();
-    ui.stop();
-  };
+    stopController = startDemo();
+    return cleanup;
+  } catch (error) {
+    cleanup();
+    throw error;
+  }
 }
 
 function VersionHistoryToolbar(): Element[] {

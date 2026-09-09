@@ -407,7 +407,11 @@ A loaded state must meet these requirements:
 - Parent and child references must exist, point back to each other, and contain
   no duplicate child IDs.
 - Every `selectedChildIndex` must be an integer. Selection reads clamp integers
-  outside the available child range.
+  outside the available child range. Inserting with `select: false` preserves
+  that effective selection.
+
+IDs may be empty strings. An empty `rootId` uses the default root only when the
+state has no explicit empty-string root record.
 
 Structurally consistent disconnected components are permitted. `getStats()`
 counts them in `orphanedNodes`; root-path APIs treat them as unreachable.
@@ -562,8 +566,14 @@ preserves zoom and pan across resize events. This keeps path switching
 responsive on trees with hundreds of messages.
 
 `mountDemo()` returns a cleanup function. Call it before remounting the demo so
-the Loom scope, event listeners, minimap listeners, and scheduled animation
-frames are released.
+the DOM-owned Loom bindings, event listeners, minimap, cached tree data, and
+scheduled animation frames are released. Cleanup is idempotent and removes
+mounted content. `startDemoShell()` also returns cleanup and cancels pending
+page loading when stopped. A failed page load shows a reload message.
+
+Pure sample generation lives in `demo/version-history/messages.ts`, and
+iterative minimap placement lives in `demo/shared/minimap-layout.ts`. Both have
+unit tests independent of DOM initialization.
 
 Build the demo production bundle with Vite when you want to inspect output size:
 

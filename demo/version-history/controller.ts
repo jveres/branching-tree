@@ -1,26 +1,22 @@
 import {
   BranchingTree,
-  type BranchingTreeNode,
   type BranchingTreePathNeighborhoodEdge,
   type BranchingTreePathNeighborhoodNode,
   type BranchingTreeState,
   type BranchingTreeStats,
-  type Identified,
   ROOT_NODE_ID,
 } from "../../branching-tree";
 import { createDemoMinimap, type DemoMinimap } from "../shared/minimap";
 import { setShellSummary } from "../shared/shell-store";
 import { resetDemoActions, setDemoActions } from "./actions";
+import {
+  type ChatRole,
+  type DemoMessage,
+  createDemoState,
+  createMessage,
+  getVersionLabel,
+} from "./messages";
 import demoStore, { type DemoSize } from "./store";
-
-type ChatRole = "user" | "assistant";
-
-type DemoMessage = Identified & {
-  role: ChatRole;
-  content: string;
-  tokenCount: number;
-  turn: number;
-};
 
 type PositionedNode = {
   id: string;
@@ -110,28 +106,6 @@ const roleLabels: Record<ChatRole, string> = {
   user: "YOU",
 };
 
-const prompts = [
-  "Compare retrieval strategies for a product assistant.",
-  "Turn this answer into a terse status update.",
-  "List risks before shipping the conversation view.",
-  "Draft a migration note for persisted branches.",
-  "Explain why sibling navigation must stay cheap.",
-  "Summarize the selected branch for a support agent.",
-  "Propose labels for alternate assistant drafts.",
-  "Refine the wording without changing meaning.",
-];
-
-const answers = [
-  "Use a compact branch map, preserve every version, and defer expensive work until the structure changes.",
-  "The selected path remains the visible transcript while nearby siblings provide fast version switching.",
-  "Cache layout positions separately from selection state so node clicks only update a small set of classes.",
-  "Render edges once and update selection classes without rebuilding the graph.",
-  "Keep message metadata close to each node so the inspector can update without scanning the DOM.",
-  "Treat regeneration as branch pruning followed by append, not as a wholesale transcript rewrite.",
-  "Store stable ids for every message version to make persisted paths and links durable.",
-  "Use sibling counts and indexes to drive version controls at each message depth.",
-];
-
 let svg: SVGSVGElement;
 let mapPanel: HTMLElement;
 let minimapController: DemoMinimap<DemoMessage> | null = null;
@@ -167,163 +141,168 @@ let listenerAbortController: AbortController | null = null;
 export function startDemo(): () => void {
   if (demoStarted) return stopDemo;
   demoStarted = true;
-  setShellSummary("Loading map");
+  try {
+    setShellSummary("Loading map");
 
-  svg = mustElement("tree-map", SVGSVGElement);
-  mapPanel = mustElement("map-panel", HTMLElement);
-  listenerAbortController = new AbortController();
-  const { signal } = listenerAbortController;
-  minimapController = createDemoMinimap({
-    countLabel: "messages",
-    mapPanel,
-    minimap: mustElement("minimap", HTMLElement),
-    minimapCount: mustElement("minimap-count", HTMLElement),
-    minimapSvg: mustElement("minimap-svg", SVGSVGElement),
-    minimapToggle: mustElement("minimap-toggle", HTMLButtonElement),
-    onSelect: selectNode,
-  });
+    svg = mustElement("tree-map", SVGSVGElement);
+    mapPanel = mustElement("map-panel", HTMLElement);
+    listenerAbortController = new AbortController();
+    const { signal } = listenerAbortController;
+    minimapController = createDemoMinimap({
+      countLabel: "messages",
+      mapPanel,
+      minimap: mustElement("minimap", HTMLElement),
+      minimapCount: mustElement("minimap-count", HTMLElement),
+      minimapSvg: mustElement("minimap-svg", SVGSVGElement),
+      minimapToggle: mustElement("minimap-toggle", HTMLButtonElement),
+      onSelect: selectNode,
+    });
 
-  setDemoActions({
-    addChild,
-    addVersion,
-    deleteBranch,
-    deleteSiblingGroup,
-    fitMap,
-    keepOnlyVersion,
-    createLinearPath,
-    loadSize(size) {
-      loadTree(size);
-      setActiveSizeButton(size);
-    },
-    nextVersion() {
-      selectAdjacentSibling(1);
-    },
-    previousVersion() {
-      selectAdjacentSibling(-1);
-    },
-    resetTree() {
-      loadTree(currentSize);
-      setActiveSizeButton(currentSize);
-    },
-    selectNode,
-    selectSiblingVersion,
-    truncateAfterSelection,
-    zoomIn() {
-      zoomBy(1.18);
-    },
-    zoomOut() {
-      zoomBy(0.85);
-    },
-  });
+    setDemoActions({
+      addChild,
+      addVersion,
+      deleteBranch,
+      deleteSiblingGroup,
+      fitMap,
+      keepOnlyVersion,
+      createLinearPath,
+      loadSize(size) {
+        loadTree(size);
+        setActiveSizeButton(size);
+      },
+      nextVersion() {
+        selectAdjacentSibling(1);
+      },
+      previousVersion() {
+        selectAdjacentSibling(-1);
+      },
+      resetTree() {
+        loadTree(currentSize);
+        setActiveSizeButton(currentSize);
+      },
+      selectNode,
+      selectSiblingVersion,
+      truncateAfterSelection,
+      zoomIn() {
+        zoomBy(1.18);
+      },
+      zoomOut() {
+        zoomBy(0.85);
+      },
+    });
 
-  mapPanel.addEventListener(
-    "click",
-    (event) => {
-      if (suppressNextClick) {
-        suppressNextClick = false;
-        return;
-      }
+    mapPanel.addEventListener(
+      "click",
+      (event) => {
+        if (suppressNextClick) {
+          suppressNextClick = false;
+          return;
+        }
 
-      const node = getNodeElement(event.target);
-      const id = node?.dataset.id;
-      if (id) {
-        selectNodeAndFocus(id, { scrollIntoView: true });
-      }
-    },
-    { signal },
-  );
+        const node = getNodeElement(event.target);
+        const id = node?.dataset.id;
+        if (id) {
+          selectNodeAndFocus(id, { scrollIntoView: true });
+        }
+      },
+      { signal },
+    );
 
-  svg.addEventListener(
-    "keydown",
-    (event) => {
-      const node = getNodeElement(event.target);
-      const id = node?.dataset.id;
-      if (!id) return;
+    svg.addEventListener(
+      "keydown",
+      (event) => {
+        const node = getNodeElement(event.target);
+        const id = node?.dataset.id;
+        if (!id) return;
 
-      if (event.key === "Enter" || event.key === " ") {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          enableKeyboardHoverSuppression();
+          selectNodeAndFocus(id, { scrollIntoView: true });
+          return;
+        }
+
+        const targetId = getKeyboardNavigationTarget(id, event.key);
+        if (!targetId) return;
+
         event.preventDefault();
         enableKeyboardHoverSuppression();
-        selectNodeAndFocus(id, { scrollIntoView: true });
-        return;
-      }
+        selectNodeAndFocus(targetId, { scrollIntoView: true });
+      },
+      { signal },
+    );
 
-      const targetId = getKeyboardNavigationTarget(id, event.key);
-      if (!targetId) return;
+    mapPanel.addEventListener(
+      "pointerdown",
+      (event) => {
+        if (event.button !== 0) return;
 
-      event.preventDefault();
-      enableKeyboardHoverSuppression();
-      selectNodeAndFocus(targetId, { scrollIntoView: true });
-    },
-    { signal },
-  );
+        disableKeyboardHoverSuppression();
+        event.preventDefault();
+        document.body.classList.add("is-map-dragging");
 
-  mapPanel.addEventListener(
-    "pointerdown",
-    (event) => {
-      if (event.button !== 0) return;
+        const node = getNodeElement(event.target);
+        dragState = {
+          pointerId: event.pointerId,
+          startX: event.clientX,
+          startY: event.clientY,
+          startCameraX: camera.x,
+          startCameraY: camera.y,
+          nodeId: node?.dataset.id ?? null,
+          moved: false,
+        };
+        mapPanel.setPointerCapture(event.pointerId);
+      },
+      { signal },
+    );
 
-      disableKeyboardHoverSuppression();
-      event.preventDefault();
-      document.body.classList.add("is-map-dragging");
+    mapPanel.addEventListener(
+      "pointermove",
+      (event) => {
+        disableKeyboardHoverSuppression();
 
-      const node = getNodeElement(event.target);
-      dragState = {
-        pointerId: event.pointerId,
-        startX: event.clientX,
-        startY: event.clientY,
-        startCameraX: camera.x,
-        startCameraY: camera.y,
-        nodeId: node?.dataset.id ?? null,
-        moved: false,
-      };
-      mapPanel.setPointerCapture(event.pointerId);
-    },
-    { signal },
-  );
+        if (!dragState || dragState.pointerId !== event.pointerId) return;
 
-  mapPanel.addEventListener(
-    "pointermove",
-    (event) => {
-      disableKeyboardHoverSuppression();
+        const deltaX = event.clientX - dragState.startX;
+        const deltaY = event.clientY - dragState.startY;
+        if (!dragState.moved && Math.hypot(deltaX, deltaY) >= DRAG_THRESHOLD) {
+          dragState.moved = true;
+          mapPanel.classList.add("is-dragging");
+        }
 
-      if (!dragState || dragState.pointerId !== event.pointerId) return;
+        if (!dragState.moved) return;
 
-      const deltaX = event.clientX - dragState.startX;
-      const deltaY = event.clientY - dragState.startY;
-      if (!dragState.moved && Math.hypot(deltaX, deltaY) >= DRAG_THRESHOLD) {
-        dragState.moved = true;
-        mapPanel.classList.add("is-dragging");
-      }
+        event.preventDefault();
+        cancelCameraAnimation();
+        camera = {
+          ...camera,
+          x: dragState.startCameraX + deltaX,
+          y: dragState.startCameraY + deltaY,
+        };
+        applyCamera();
+      },
+      { signal },
+    );
 
-      if (!dragState.moved) return;
+    mapPanel.addEventListener("pointerup", (event) => finishDrag(event), { signal });
+    mapPanel.addEventListener("pointercancel", (event) => finishDrag(event), { signal });
+    mapPanel.addEventListener("dblclick", (event) => handleDoubleClickZoom(event), { signal });
+    mapPanel.addEventListener("dragstart", (event) => event.preventDefault(), { signal });
+    mapPanel.addEventListener("selectstart", (event) => event.preventDefault(), { signal });
+    mapPanel.addEventListener("wheel", (event) => handleWheel(event), {
+      passive: false,
+      signal,
+    });
+    window.addEventListener("resize", scheduleViewportResize, { signal });
 
-      event.preventDefault();
-      cancelCameraAnimation();
-      camera = {
-        ...camera,
-        x: dragState.startCameraX + deltaX,
-        y: dragState.startCameraY + deltaY,
-      };
-      applyCamera();
-    },
-    { signal },
-  );
+    mapPanel.addEventListener("scroll", () => minimapController?.updatePosition(), { signal });
 
-  mapPanel.addEventListener("pointerup", (event) => finishDrag(event), { signal });
-  mapPanel.addEventListener("pointercancel", (event) => finishDrag(event), { signal });
-  mapPanel.addEventListener("dblclick", (event) => handleDoubleClickZoom(event), { signal });
-  mapPanel.addEventListener("dragstart", (event) => event.preventDefault(), { signal });
-  mapPanel.addEventListener("selectstart", (event) => event.preventDefault(), { signal });
-  mapPanel.addEventListener("wheel", (event) => handleWheel(event), {
-    passive: false,
-    signal,
-  });
-  window.addEventListener("resize", scheduleViewportResize, { signal });
-
-  mapPanel.addEventListener("scroll", () => minimapController?.updatePosition(), { signal });
-
-  loadTree(DEFAULT_SIZE);
-  return stopDemo;
+    loadTree(DEFAULT_SIZE);
+    return stopDemo;
+  } catch (error) {
+    stopDemo();
+    throw error;
+  }
 }
 
 function stopDemo(): void {
@@ -347,6 +326,26 @@ function stopDemo(): void {
   document.body.classList.remove("is-map-dragging");
   dragState = null;
   suppressNextClick = false;
+  // Release the large imperative SVG and tree snapshots when the view unmounts.
+  svg?.replaceChildren();
+  nodeElements.clear();
+  edgeElements.clear();
+  childLinkElements.clear();
+  childBadgeElements.clear();
+  positionCache.clear();
+  selectedNodeIds.clear();
+  selectedEdgeIds.clear();
+  viewportGroup = null;
+  edgeLayer = null;
+  childLinkLayer = null;
+  nodeLayer = null;
+  childBadgeLayer = null;
+  layout = createEmptyLayout();
+  structuralStats = createEmptyStats();
+  contentBounds = createEmptyContentBounds();
+  tree.reset();
+  inspectorNodeId = null;
+  highlightedNodeId = null;
 }
 
 function enableKeyboardHoverSuppression(): void {
@@ -390,136 +389,6 @@ function loadState(state: BranchingTreeState<DemoMessage>, nextSeed: number): vo
   demoStore.renderTime(formatMs(performance.now() - started));
   updateMetrics();
   syncMinimap(inspectorId ?? null, true);
-}
-
-export function createDemoState(targetNodeCount: number): BranchingTreeState<DemoMessage> {
-  const root = createRootNode();
-  const nodes: Record<string, BranchingTreeNode<DemoMessage>> = {
-    [ROOT_NODE_ID]: root,
-  };
-  const queue: Array<{ id: string; depth: number; seed: number }> = [
-    { id: ROOT_NODE_ID, depth: -1, seed: 1 },
-  ];
-  let nextId = 1;
-  let userLeafCount = 0;
-  let queueIndex = 0;
-
-  while (queueIndex < queue.length && nextId <= targetNodeCount) {
-    const parentInfo = queue[queueIndex++];
-    if (!parentInfo) break;
-
-    const parent = nodes[parentInfo.id];
-    if (!parent) continue;
-
-    const remaining = targetNodeCount - nextId + 1;
-    const childCount = getChildCount(
-      parent,
-      parentInfo.depth,
-      parentInfo.seed,
-      remaining,
-      userLeafCount,
-    );
-    if (childCount === 0) continue;
-
-    // This parent stops being a leaf; each new user child needs a reply.
-    if (parent.value?.role === "user") userLeafCount--;
-
-    const childIds: string[] = [];
-    for (let index = 0; index < childCount; index++) {
-      const id = `msg-${String(nextId).padStart(4, "0")}`;
-      const depth = parentInfo.depth + 1;
-      const turn = Math.max(0, Math.floor(depth / 2));
-      const value = createMessage(id, depth, turn, index, childCount, parentInfo.seed);
-
-      nodes[id] = {
-        id,
-        value,
-        parentId: parent.id,
-        childrenIds: [],
-        selectedChildIndex: 0,
-      };
-      childIds.push(id);
-      if (value.role === "user") userLeafCount++;
-      queue.push({ id, depth, seed: parentInfo.seed + index + nextId });
-      nextId++;
-    }
-
-    parent.childrenIds.push(...childIds);
-    parent.selectedChildIndex = Math.min(
-      childIds.length - 1,
-      Math.abs(parentInfo.seed + parentInfo.depth) % childIds.length,
-    );
-  }
-
-  return { rootId: ROOT_NODE_ID, nodes };
-}
-
-function createMessage(
-  id: string,
-  depth: number,
-  turn: number,
-  siblingIndex: number,
-  siblingCount: number,
-  seed: number,
-): DemoMessage {
-  const role = getRole(depth);
-  const source = role === "assistant" ? answers : prompts;
-  const text =
-    source[Math.abs(seed + siblingIndex + depth) % source.length] ?? source[0] ?? "Message";
-  const versionLabel = getVersionLabel(siblingIndex, siblingCount);
-
-  return {
-    id,
-    role,
-    content: `${text} ${versionLabel === "main" ? "" : `Alternative ${versionLabel}.`}`.trim(),
-    tokenCount: 18 + ((seed + depth * 7 + siblingIndex * 11) % 180),
-    turn,
-  };
-}
-
-function getChildCount(
-  parent: BranchingTreeNode<DemoMessage>,
-  depth: number,
-  seed: number,
-  remaining: number,
-  userLeafCount: number,
-): number {
-  const isUserLeaf = parent.value?.role === "user" && parent.childrenIds.length === 0;
-  const pendingRequiredReplies = userLeafCount - (isUserLeaf ? 1 : 0);
-  const capacity = remaining - pendingRequiredReplies;
-
-  if (capacity <= 0) return 0;
-  if (depth < 0) return capacity >= 2 ? 1 : 0;
-
-  const desiredCount = getDesiredChildCount(depth, seed);
-  if (parent.value?.role === "user") {
-    return Math.min(capacity, Math.max(isUserLeaf ? 1 : 0, desiredCount));
-  }
-
-  return Math.min(Math.floor(capacity / 2), desiredCount);
-}
-
-function getDesiredChildCount(depth: number, seed: number): number {
-  if (depth < 0) return 1;
-
-  const roll = getSampleRoll(depth, seed);
-  if (depth <= 1) return 2 + ((roll + seed) % 3);
-  if (depth <= 4) return [1, 2, 3, 1, 4, 2, 1, 3][roll % 8] ?? 1;
-  if (depth <= 8) return [0, 1, 2, 1, 3, 0, 2, 1, 4, 0, 1, 2, 0, 3, 1, 2][roll] ?? 0;
-  if (depth <= 12) return roll % 5 === 0 ? 2 : roll % 3 === 0 ? 1 : 0;
-  return roll === 0 ? 1 : 0;
-}
-
-function getSampleRoll(depth: number, seed: number): number {
-  return Math.abs(seed * seed * 7 + seed * 11 + depth * 13) % 16;
-}
-
-function getRole(depth: number): ChatRole {
-  return depth % 2 === 0 ? "user" : "assistant";
-}
-
-function getVersionLabel(siblingIndex: number, siblingCount: number): string {
-  return siblingCount === 1 ? "main" : `v${siblingIndex + 1}/${siblingCount}`;
 }
 
 function refreshStructuralStats(): void {
@@ -1570,8 +1439,9 @@ function finishDrag(event: PointerEvent): void {
   document.body.classList.remove("is-map-dragging");
   dragState = null;
 
-  suppressNextClick = moved || nodeId !== null;
-  if (!moved && nodeId) {
+  const cancelled = event.type === "pointercancel";
+  suppressNextClick = !cancelled && (moved || nodeId !== null);
+  if (!cancelled && !moved && nodeId !== null) {
     selectNodeAndFocus(nodeId, { scrollIntoView: true });
   }
 }
@@ -1649,15 +1519,6 @@ function getEdgeRailY(startY: number, endY: number): number {
   const centeredY = startY + (endY - startY) * 0.5;
   const belowBadgeY = startY + CHILD_INDICATOR_DEPTH + EDGE_BADGE_CLEARANCE;
   return Math.min(Math.max(centeredY, belowBadgeY), endY - EDGE_BADGE_CLEARANCE);
-}
-
-function createRootNode(): BranchingTreeNode<DemoMessage> {
-  return {
-    id: ROOT_NODE_ID,
-    parentId: null,
-    childrenIds: [],
-    selectedChildIndex: 0,
-  };
 }
 
 function createEmptyLayout(): LayoutModel {

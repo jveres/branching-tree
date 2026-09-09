@@ -5,12 +5,13 @@ import { createServer } from "vite";
 // Run with: node scripts/performance.mjs [output.json]
 // Module loading and fixtures are outside timed regions. No coverage instrumentation.
 const server = await createServer({
+  cacheDir: "node_modules/.vite-performance",
   server: { middlewareMode: true, ws: false },
   appType: "custom",
 });
 try {
   const { BranchingTree, ROOT_NODE_ID } = await server.ssrLoadModule("/branching-tree.ts");
-  const { createDemoState } = await server.ssrLoadModule("/demo/version-history/controller.ts");
+  const { createDemoState } = await server.ssrLoadModule("/demo/version-history/messages.ts");
   const results = [];
   let sink;
   const measure = (name, operation, iterations = 20) => {

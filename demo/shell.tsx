@@ -1,12 +1,35 @@
+import { remove } from "loom/dom";
 import type { DemoCleanup } from "./shared/page";
 import shellStore, { setShellSummary } from "./shared/shell-store";
 
-let cleanupCurrentDemo: DemoCleanup | null = null;
-let loadSequence = 0;
+export function startDemoShell(root: HTMLElement): DemoCleanup {
+  const shell = DemoShell();
+  root.append(shell);
+  let cleanupCurrentDemo: DemoCleanup | undefined;
+  let stopped = false;
 
-export function startDemoShell(root: HTMLElement): void {
-  root.append(DemoShell());
+  const loadDemo = async (): Promise<void> => {
+    try {
+      setShellSummary("Loading demo");
+      const pageRoot = mustElement(shell, "demo-page", HTMLElement);
+      const toolbarRoot = mustElement(shell, "demo-toolbar", HTMLElement);
+      const module = await import("./version-history/page");
+      if (stopped) return;
+      cleanupCurrentDemo = module.mountDemo({ pageRoot, toolbarRoot });
+    } catch (error) {
+      if (stopped) return;
+      setShellSummary("Unable to load demo. Reload to try again.");
+      console.error("Failed to load demo", error);
+    }
+  };
+
   void loadDemo();
+  return () => {
+    if (stopped) return;
+    stopped = true;
+    cleanupCurrentDemo?.();
+    remove(shell);
+  };
 }
 
 function DemoShell(): HTMLElement {
@@ -25,26 +48,8 @@ function DemoShell(): HTMLElement {
   );
 }
 
-async function loadDemo(): Promise<void> {
-  const sequence = ++loadSequence;
-  setShellSummary("Loading demo");
-
-  cleanupCurrentDemo?.();
-  cleanupCurrentDemo = null;
-
-  const pageRoot = mustElement("demo-page", HTMLElement);
-  const toolbarRoot = mustElement("demo-toolbar", HTMLElement);
-  pageRoot.replaceChildren();
-  toolbarRoot.replaceChildren();
-
-  const module = await import("./version-history/page");
-  if (sequence !== loadSequence) return;
-
-  cleanupCurrentDemo = module.mountDemo({ pageRoot, toolbarRoot });
-}
-
-function mustElement<T extends Element>(id: string, ElementType: new () => T): T {
-  const element = document.getElementById(id);
+function mustElement<T extends Element>(root: Element, id: string, ElementType: new () => T): T {
+  const element = root.querySelector(`#${id}`);
   if (!(element instanceof ElementType)) {
     throw new Error(`Missing or invalid demo element #${id}; expected ${ElementType.name}.`);
   }

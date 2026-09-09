@@ -1,21 +1,13 @@
+import { placeMinimapNodes } from "./minimap-layout";
 import {
   BranchingTree,
   type BranchingTreePathEntry,
   type BranchingTreeTopology,
-  type BranchingTreeTopologyEdge,
-  type BranchingTreeTopologyNode,
   type Identified,
 } from "../../branching-tree";
 
 type MinimapValue = Identified & {
   role: string;
-};
-
-type MinimapPlacement = {
-  xById: Map<string, number>;
-  depthById: Map<string, number>;
-  maxX: number;
-  maxDepth: number;
 };
 
 type MinimapOptions = {
@@ -171,10 +163,10 @@ export function createDemoMinimap<T extends MinimapValue>({
 
     toggleClasses(edgeElements, activeEdgeIds, nextEdgeIds, "is-selected");
 
-    if (headId && headId !== nextHeadId) {
+    if (headId !== null && headId !== nextHeadId) {
       dotElements.get(headId)?.classList.remove("is-head");
     }
-    if (nextHeadId) dotElements.get(nextHeadId)?.classList.add("is-head");
+    if (nextHeadId !== null) dotElements.get(nextHeadId)?.classList.add("is-head");
 
     activeNodeIds = nextNodeIds;
     activeEdgeIds = nextEdgeIds;
@@ -196,7 +188,7 @@ export function createDemoMinimap<T extends MinimapValue>({
     (event) => {
       const target = event.target instanceof Element ? event.target.closest(".minimap-dot") : null;
       const id = target instanceof SVGCircleElement ? target.dataset.id : null;
-      if (id) onSelect(id);
+      if (id !== null && id !== undefined) onSelect(id);
     },
     { signal },
   );
@@ -206,6 +198,12 @@ export function createDemoMinimap<T extends MinimapValue>({
   return {
     destroy() {
       listenerAbortController.abort();
+      minimapSvg.replaceChildren();
+      dotElements.clear();
+      edgeElements.clear();
+      activeNodeIds.clear();
+      activeEdgeIds.clear();
+      topology = { nodes: [], edges: [] };
     },
     setCollapsed,
     sync(nextTopology, selectedPathEntries, nextHeadId, structureChanged = false) {
@@ -221,53 +219,6 @@ export function createDemoMinimap<T extends MinimapValue>({
     },
     updatePosition,
   };
-}
-
-function placeMinimapNodes<T extends MinimapValue>(
-  nodes: readonly BranchingTreeTopologyNode<T>[],
-  edges: readonly BranchingTreeTopologyEdge[],
-): MinimapPlacement {
-  const xById = new Map<string, number>();
-  const depthById = new Map<string, number>();
-  const childIdsByParent = new Map<string, string[]>();
-  const childIds = new Set<string>();
-  let leafCursor = 0;
-  let maxDepth = 0;
-
-  for (const edge of edges) {
-    childIds.add(edge.childId);
-    const children = childIdsByParent.get(edge.parentId);
-    if (children) {
-      children.push(edge.childId);
-    } else {
-      childIdsByParent.set(edge.parentId, [edge.childId]);
-    }
-  }
-
-  const assign = (id: string, depth: number): void => {
-    depthById.set(id, depth);
-    if (depth > maxDepth) maxDepth = depth;
-
-    const children = childIdsByParent.get(id) ?? [];
-    if (children.length === 0) {
-      xById.set(id, leafCursor);
-      leafCursor += 1;
-      return;
-    }
-
-    let sum = 0;
-    for (const childId of children) {
-      assign(childId, depth + 1);
-      sum += xById.get(childId) ?? 0;
-    }
-    xById.set(id, sum / children.length);
-  };
-
-  for (const node of nodes) {
-    if (!childIds.has(node.nodeId)) assign(node.nodeId, node.depth);
-  }
-
-  return { xById, depthById, maxX: Math.max(0, leafCursor - 1), maxDepth };
 }
 
 function toggleClasses<T extends Element>(

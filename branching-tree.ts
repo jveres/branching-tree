@@ -214,10 +214,15 @@ export class BranchingTree<T extends Identified> {
   public getSelectedPathState(): BranchingTreeState<T> {
     this.ensureSelectedPath();
     const nodes = createNodeRecord<T>();
-    nodes[this.rootId] = createRootNode(this.rootId);
+    nodes[this.rootId] = {
+      ...this.nodes[this.rootId]!,
+      childrenIds: [],
+      selectedChildIndex: 0,
+    };
 
     let parentId = this.rootId;
     for (const entry of this.selectedPathEntriesCache) {
+      if (entry.parentId === null) continue;
       nodes[parentId]!.childrenIds = [entry.nodeId];
       nodes[entry.nodeId] = {
         id: entry.nodeId,
@@ -233,7 +238,9 @@ export class BranchingTree<T extends Identified> {
   }
 
   public loadState(state: BranchingTreeState<T>): void {
-    const rootId = state.rootId || ROOT_NODE_ID;
+    // Preserve the legacy fallback only when no explicitly empty root exists.
+    const rootId =
+      state.rootId === "" && !Object.hasOwn(state.nodes, "") ? ROOT_NODE_ID : state.rootId;
     const nodes = cloneNodes(state.nodes);
 
     if (!nodes[rootId] && rootId === ROOT_NODE_ID) {
@@ -529,7 +536,7 @@ export class BranchingTree<T extends Identified> {
 
     const reference = this.nodes[referenceId];
     if (!reference) throw new Error(`Node ${referenceId} not found.`);
-    if (!reference.parentId) throw new Error("Cannot add a sibling to the root node.");
+    if (reference.parentId === null) throw new Error("Cannot add a sibling to the root node.");
 
     this.insert(value, reference.parentId, options);
   }
@@ -722,6 +729,12 @@ export class BranchingTree<T extends Identified> {
     parent.childrenIds.push(value.id);
     if (options.select !== false || parent.childrenIds.length === 1) {
       parent.selectedChildIndex = parent.childrenIds.length - 1;
+    } else {
+      // Preserve the effective selection from before this child was inserted.
+      parent.selectedChildIndex = clampIndex(
+        parent.selectedChildIndex,
+        parent.childrenIds.length - 2,
+      );
     }
     this.markSelectedPathDirty(appendingToSelectedHead ? value.id : undefined);
   }
@@ -758,7 +771,7 @@ export class BranchingTree<T extends Identified> {
       }
 
       const childId = this.getSelectedChildId(current);
-      current = childId ? this.nodes[childId] : undefined;
+      current = childId !== undefined ? this.nodes[childId] : undefined;
     }
 
     this.selectedPathCache = Object.freeze(path);
@@ -1005,7 +1018,7 @@ export class BranchingTree<T extends Identified> {
 
     const getMappedId = (id: string): string => {
       const mappedId = idMap.get(id);
-      if (!mappedId) throw new Error(`Missing cloned id for node ${id}.`);
+      if (mappedId === undefined) throw new Error(`Missing cloned id for node ${id}.`);
       return mappedId;
     };
 
@@ -1013,7 +1026,7 @@ export class BranchingTree<T extends Identified> {
 
     for (const [oldId, node] of Object.entries(state.nodes)) {
       const id = getMappedId(oldId);
-      const parentId = node.parentId ? getMappedId(node.parentId) : null;
+      const parentId = node.parentId !== null ? getMappedId(node.parentId) : null;
 
       nodes[id] = {
         id,
